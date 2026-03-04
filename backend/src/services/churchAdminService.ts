@@ -51,6 +51,12 @@ export const getChurchAdminDashboard = async (
   const inProgressVerification = churchAdmin.church.members.filter(
     (m) => m.verificationStatus === "in_progress",
   ).length;
+  const rejectedMembers = churchAdmin.church.members.filter(
+    (m) => m.verificationStatus === "rejected",
+  ).length;
+  const unverifiedMembers = churchAdmin.church.members.filter(
+    (m) => m.verificationStatus !== "verified",
+  ).length;
   const totalCounselors = churchAdmin.church.counselors.length;
 
   // Get recent members (last 5)
@@ -95,6 +101,8 @@ export const getChurchAdminDashboard = async (
       verifiedMembers,
       pendingVerification,
       inProgressVerification,
+      unverifiedMembers,
+      rejectedMembers,
       totalCounselors,
     },
     recentMembers: recentMembers.map((m) => ({

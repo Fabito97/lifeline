@@ -1,25 +1,19 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { DashboardLayout } from "../features/dashboard/components/DashboardLayout";
-import {
-  Card,
-  StatCard,
-  Table,
-  Button,
-  Modal,
-  Toast,
-  ConfirmModal,
-} from "../components";
-import { counselorService } from "../api/services";
+import { Card, StatCard, Table, Button, Modal, Toast } from "../components";
 import { useParams } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import {
+  useCounselorAssignedUsersQuery,
+  useCounselorDashboardQuery,
+  useVerifyCounselorUserMutation,
+} from "../api/queries/counselor";
 
 const CounselorDashboard = () => {
   const { user } = useAuth();
   const { id: viewedCounselorAccountId } = useParams();
+
   const [activeTab, setActiveTab] = useState("dashboard");
-  const [dashboard, setDashboard] = useState(null);
-  const [assignedUsers, setAssignedUsers] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState(null);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -27,59 +21,55 @@ const CounselorDashboard = () => {
     status: "verified",
     notes: "",
   });
+
   const isHigherRoleViewer =
     Boolean(viewedCounselorAccountId) && user?.role !== "Counselor";
 
-  // Fetch dashboard data
-  useEffect(() => {
-    if (activeTab === "dashboard") {
-      fetchDashboard();
-    } else if (activeTab === "users") {
-      fetchAssignedUsers();
-    }
-  }, [activeTab, viewedCounselorAccountId]);
+  const dashboardQuery = useCounselorDashboardQuery(viewedCounselorAccountId, {
+    enabled: activeTab === "dashboard",
+    staleTime: 1000 * 60 * 2,
+    onError: () =>
+      setToast({ type: "error", message: "Failed to fetch dashboard" }),
+  });
 
-  const fetchDashboard = async () => {
-    setLoading(true);
-    try {
-      const response =
-        await counselorService.getDashboard(viewedCounselorAccountId);
-      if (response.success) {
-        setDashboard(response.data);
-      }
-    } catch {
-      setToast({ type: "error", message: "Failed to fetch dashboard" });
-    } finally {
-      setLoading(false);
-    }
-  };
+  const assignedUsersQuery = useCounselorAssignedUsersQuery(
+    viewedCounselorAccountId,
+    {},
+    {
+      enabled: activeTab === "users",
+      staleTime: 1000 * 60 * 2,
+      onError: () =>
+        setToast({ type: "error", message: "Failed to fetch assigned users" }),
+    },
+  );
 
-  const fetchAssignedUsers = async () => {
-    setLoading(true);
-    try {
-      const response = await counselorService.getAssignedUsers(
-        {},
-        viewedCounselorAccountId,
-      );
-      if (response.success) {
-        setAssignedUsers(response.data.users || []);
-      }
-    } catch {
-      setToast({ type: "error", message: "Failed to fetch assigned users" });
-    } finally {
-      setLoading(false);
-    }
-  };
+  const verifyUserMutation = useVerifyCounselorUserMutation();
+
+  const dashboard = dashboardQuery.data?.success ? dashboardQuery.data.data : null;
+  const assignedUsers = assignedUsersQuery.data?.success
+    ? assignedUsersQuery.data.data.users || []
+    : [];
+
+  const overviewLoading = dashboardQuery.isLoading || dashboardQuery.isFetching;
+  const usersLoading = assignedUsersQuery.isLoading || assignedUsersQuery.isFetching;
+  const mutationLoading = verifyUserMutation.isPending;
 
   const handleVerifyUser = async (e) => {
     e.preventDefault();
-    setLoading(true);
+
+    if (!selectedUser?.accountId) {
+      setToast({ type: "error", message: "Missing user accountId" });
+      return;
+    }
+
     try {
-      const response = await counselorService.verifyUser(
-        selectedUser.accountId,
-        verifyForm.status,
-        verifyForm.notes,
-      );
+      const response = await verifyUserMutation.mutateAsync({
+        userAccountId: selectedUser.accountId,
+        status: verifyForm.status,
+        notes: verifyForm.notes,
+        viewedCounselorAccountId,
+      });
+
       if (response.success) {
         setToast({
           type: "success",
@@ -87,21 +77,17 @@ const CounselorDashboard = () => {
         });
         setVerifyForm({ status: "verified", notes: "" });
         setShowVerifyModal(false);
-        fetchAssignedUsers();
-        fetchDashboard();
       }
     } catch {
       setToast({ type: "error", message: "Failed to verify user" });
-    } finally {
-      setLoading(false);
     }
   };
 
   const sidebar = (
     <nav className="space-y-2">
       {[
-        { id: "dashboard", label: "📊 Dashboard" },
-        { id: "users", label: "👥 Assigned Users" },
+        { id: "dashboard", label: "Dashboard" },
+        { id: "users", label: "Assigned Users" },
       ].map((item) => (
         <button
           key={item.id}
@@ -141,61 +127,57 @@ const CounselorDashboard = () => {
 
   return (
     <DashboardLayout sidebar={sidebar}>
-      {/* Dashboard View */}
-      {activeTab === "dashboard" && dashboard && (
+      {activeTab === "dashboard" && (
         <div className="space-y-6">
           <h1 className="text-3xl font-bold text-gray-900">
             {isHigherRoleViewer
-              ? "Viewing Counselor Dashboard"
+              ? `Viewing Counselor ${dashboard?.counselor?.name} Dashboard`
               : "Counselor Dashboard"}
           </h1>
 
-          {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
             <StatCard
               label="Total Assigned"
-              value={dashboard.stats?.totalAssigned || 0}
-              icon="👥"
+              value={dashboard?.stats?.totalAssigned || 0}
+              icon="U"
               color="blue"
             />
             <StatCard
               label="Pending"
-              value={dashboard.stats?.pending || 0}
-              icon="⏳"
+              value={dashboard?.stats?.pending || 0}
+              icon="P"
               color="yellow"
             />
             <StatCard
               label="In Progress"
-              value={dashboard.stats?.inProgress || 0}
-              icon="🔄"
+              value={dashboard?.stats?.inProgress || 0}
+              icon="I"
               color="blue"
             />
             <StatCard
               label="Verified"
-              value={dashboard.stats?.verified || 0}
-              icon="✅"
+              value={dashboard?.stats?.verified || 0}
+              icon="V"
               color="green"
             />
             <StatCard
               label="Rejected"
-              value={dashboard.stats?.rejected || 0}
-              icon="❌"
+              value={dashboard?.stats?.rejected || 0}
+              icon="R"
               color="red"
             />
           </div>
 
-          {/* Recent Assigned Users */}
           <Card title="Recent Assigned Users" subtitle="Users assigned to you">
             <Table
               columns={userColumns}
-              data={dashboard.assignedUsers || []}
-              loading={loading}
+              data={dashboard?.assignedUsers || []}
+              loading={overviewLoading}
             />
           </Card>
         </div>
       )}
 
-      {/* Users Management */}
       {activeTab === "users" && (
         <div className="space-y-6">
           <h1 className="text-3xl font-bold text-gray-900">Assigned Users</h1>
@@ -204,7 +186,7 @@ const CounselorDashboard = () => {
             <Table
               columns={userColumns}
               data={assignedUsers}
-              loading={loading}
+              loading={usersLoading}
               actions={(row) => (
                 <div className="flex gap-2">
                   <Button
@@ -236,7 +218,6 @@ const CounselorDashboard = () => {
         </div>
       )}
 
-      {/* Verify User Modal */}
       <Modal
         isOpen={showVerifyModal}
         onClose={() => setShowVerifyModal(false)}
@@ -253,7 +234,7 @@ const CounselorDashboard = () => {
             <Button
               variant={verifyForm.status === "verified" ? "success" : "danger"}
               onClick={handleVerifyUser}
-              disabled={loading}
+              disabled={mutationLoading}
             >
               {verifyForm.status === "verified" ? "Verify" : "Reject"}
             </Button>
@@ -301,7 +282,6 @@ const CounselorDashboard = () => {
         )}
       </Modal>
 
-      {/* Toast */}
       {toast && (
         <Toast
           message={toast.message}

@@ -32,16 +32,16 @@ export const queryKeys = {
 
   churchAdmin: {
     all: ["church-admin"],
-    dashboard: () => ["church-admin", "dashboard"],
+    dashboard: (accountId = "self") => ["church-admin", "dashboard", accountId],
     members: (params = {}) => withParams(["church-admin", "members"], params),
     counselors: (params = {}) => withParams(["church-admin", "counselors"], params),
   },
 
   counselor: {
     all: ["counselor"],
-    dashboard: () => ["counselor", "dashboard"],
-    assignedUsers: (params = {}) =>
-      withParams(["counselor", "assigned-users"], params),
+    dashboard: (accountId = "self") => ["counselor", "dashboard", accountId],
+    assignedUsers: (accountId = "self", params = {}) =>
+      withParams(["counselor", "assigned-users", accountId], params),
     profile: (id) => ["counselor", "profile", id],
   },
 };
