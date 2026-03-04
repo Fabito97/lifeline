@@ -19,6 +19,14 @@ export const getCounselorDashboard = async (
   const counselor = await prisma.counselor.findUnique({
     where: { id: counselorId },
     include: {
+      account: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+        },
+      },
       assignedUsers: {
         include: {
           account: {
@@ -55,6 +63,13 @@ export const getCounselorDashboard = async (
   ).length;
 
   return {
+    counselor: {
+      accountId: counselor.account.id,
+      firstName: counselor.account.firstName,
+      lastName: counselor.account.lastName,
+      name: `${counselor.account.firstName} ${counselor.account.lastName}`,
+      email: counselor.account.email,
+    },
     stats: {
       totalAssigned,
       pending,
