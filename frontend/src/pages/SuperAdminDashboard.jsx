@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { DashboardLayout } from "../features/dashboard/components/DashboardLayout";
-import { Card, StatCard, Table, Button, Modal, Toast } from "../components";
+import { Card, StatCard, Table, Button, Modal, Toast, ActionMenu } from "../components";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import CreateCounsellorModal from "../features/dashboard/components/CreateCounsellorModal";
 import {
@@ -18,6 +18,7 @@ import {
   useSuperAdminOverviewQuery,
   useAdminChurchesQuery,
 } from "../api/queries/admin";
+import { useCreateManualMatchMutation, useMatchesQuery } from "../api/queries/matching";
 import {
   useActivateChurchMutation,
   useCreateChurchMutation,
@@ -28,6 +29,7 @@ const SuperAdminDashboard = () => {
   const [showCreateChurch, setShowCreateChurch] = useState(false);
   const [showCreateAdmin, setShowCreateAdmin] = useState(false);
   const [showCreateCounselor, setShowCreateCounselor] = useState(false);
+  const [showCreateMatch, setShowCreateMatch] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const activeTab = searchParams.get("tab") || "overview";
@@ -52,6 +54,11 @@ const SuperAdminDashboard = () => {
     phone: "",
   });
 
+  const [matchForm, setMatchForm] = useState({
+    maleAccountId: "",
+    femaleAccountId: "",
+  });
+
   const overviewQuery = useSuperAdminOverviewQuery({
     enabled: activeTab === "overview",
     staleTime: 1000 * 60 * 2,
@@ -72,7 +79,7 @@ const SuperAdminDashboard = () => {
   const usersQuery = useAdminUsersQuery(
     {},
     {
-      enabled: activeTab === "users",
+      enabled: activeTab === "users" || showCreateMatch,
       staleTime: 1000 * 60 * 2,
       onError: () => setToast({ type: "error", message: "Failed to fetch users" }),
     },
@@ -98,10 +105,21 @@ const SuperAdminDashboard = () => {
     },
   );
 
+  const matchesQuery = useMatchesQuery(
+    { limit: 10 },
+    {
+      enabled: activeTab === "matches",
+      staleTime: 1000 * 60 * 2,
+      onError: () =>
+        setToast({ type: "error", message: "Failed to fetch matches" }),
+    },
+  );
+
   const createChurchMutation = useCreateChurchMutation();
   const activateChurchMutation = useActivateChurchMutation();
   const createChurchAdminMutation = useCreateChurchAdminMutation();
   const verifyUserMutation = useAdminVerifyUserMutation();
+  const createMatchMutation = useCreateManualMatchMutation();
 
   const overviewData =
     overviewQuery.data?.success && overviewQuery.data?.data
@@ -134,6 +152,12 @@ const SuperAdminDashboard = () => {
     : activeTab === "overview"
       ? overviewData.counselors
       : [];
+  const matches = matchesQuery.data?.success
+    ? matchesQuery.data.data.matches || []
+    : [];
+  const matchesPagination = matchesQuery.data?.success
+    ? matchesQuery.data.pagination
+    : null;
 
   const churchesForSelect = churchesQuery.data?.success
     ? churchesQuery.data.data.churches || []
@@ -155,12 +179,14 @@ const SuperAdminDashboard = () => {
     churchAdminsQuery.isFetching ||
     createChurchAdminMutation.isPending;
   const counselorsLoading = counselorsQuery.isLoading || counselorsQuery.isFetching;
+  const matchesLoading = matchesQuery.isLoading || matchesQuery.isFetching;
 
   const overviewError = overviewQuery.isError;
   const churchesError = churchesQuery.isError;
   const usersError = usersQuery.isError;
   const adminsError = churchAdminsQuery.isError;
   const counselorsError = counselorsQuery.isError;
+  const matchesError = matchesQuery.isError;
 
   const handleCreateChurch = async (e) => {
     e.preventDefault();
@@ -224,6 +250,26 @@ const SuperAdminDashboard = () => {
     }
   };
 
+  const handleCreateMatch = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await createMatchMutation.mutateAsync({
+        maleAccountId: matchForm.maleAccountId,
+        femaleAccountId: matchForm.femaleAccountId,
+      });
+      if (response.success) {
+        setToast({ type: "success", message: "Match created successfully!" });
+        setMatchForm({ maleAccountId: "", femaleAccountId: "" });
+        setShowCreateMatch(false);
+      }
+    } catch (error) {
+      setToast({
+        type: "error",
+        message: error?.response?.data?.message || "Failed to create match",
+      });
+    }
+  };
+
   const handleVerifyChurch = async (churchId, status = "active") => {
     try {
       const response = await activateChurchMutation.mutateAsync({
@@ -243,12 +289,13 @@ const SuperAdminDashboard = () => {
 
   const sidebar = (
     <nav className="space-y-2 flex flex-col">
-      {[
+      {[ 
         { id: "overview", label: "Dashboard" },
         { id: "churches", label: "Manage Churches" },
         { id: "users", label: "Manage Users" },
         { id: "counselors", label: "Counselors" },
         { id: "admins", label: "Church Admins" },
+        { id: "matches", label: "Matches" },
       ].map((item) => (
         <button
           key={item.id}
@@ -325,6 +372,29 @@ const SuperAdminDashboard = () => {
     },
   ];
 
+  const matchColumns = [
+    {
+      key: "id",
+      label: "Match ID",
+      render: (id) => id?.substring(0, 8),
+    },
+    { key: "status", label: "Status" },
+    {
+      key: "createdAt",
+      label: "Created",
+      render: (value) =>
+        value ? new Date(value).toLocaleDateString() : "N/A",
+    },
+    {
+      key: "participants",
+      label: "Participants",
+      render: (participants = []) =>
+        participants
+          .map((p) => `${p.firstName} ${p.lastName}`)
+          .join(" & "),
+    },
+  ];
+
   return (
     <DashboardLayout sidebar={sidebar}>
       {activeTab === "overview" && (
@@ -337,7 +407,7 @@ const SuperAdminDashboard = () => {
           )}
 
           {overviewData.stats && (
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
               <StatCard
                 label="Total Churches"
                 value={overviewData.stats.overview?.churches?.total || 0}
@@ -361,6 +431,12 @@ const SuperAdminDashboard = () => {
                 value={overviewData.stats.overview?.users?.verified || 0}
                 icon={<ShieldCheck className="w-8 h-8" />}
                 color="green"
+              />
+              <StatCard
+                label="Total Matches"
+                value={overviewData.stats.overview?.matches?.total || 0}
+                icon={<Users className="w-8 h-8" />}
+                color="blue"
               />
             </div>
           )}
@@ -393,18 +469,18 @@ const SuperAdminDashboard = () => {
               data={churches}
               loading={churchesLoading}
               actions={(row) => (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    handleVerifyChurch(
-                      row.id,
-                      row.status === "active" ? "suspended" : "active",
-                    )
-                  }
-                >
-                  {row.status === "active" ? "Deactivate" : "Activate"}
-                </Button>
+                <ActionMenu
+                  items={[
+                    {
+                      label: row.status === "active" ? "Deactivate" : "Activate",
+                      onClick: () =>
+                        handleVerifyChurch(
+                          row.id,
+                          row.status === "active" ? "suspended" : "active",
+                        ),
+                    },
+                  ]}
+                />
               )}
             />
           </Card>
@@ -426,22 +502,20 @@ const SuperAdminDashboard = () => {
               data={users}
               loading={usersLoading}
               actions={(row) => (
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => navigate(`/dashboard/user/${row.accountId}`)}
-                  >
-                    View Dashboard
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={row.isVerified ? "secondary" : "success"}
-                    onClick={() => handleVerifyUser(row.accountId, !row.isVerified)}
-                  >
-                    {row.isVerified ? "Unverify" : "Verify"}
-                  </Button>
-                </div>
+                <ActionMenu
+                  items={[
+                    {
+                      label: "View Details",
+                      onClick: () =>
+                        navigate(`/dashboard/user/${row.accountId}`),
+                    },
+                    {
+                      label: row.isVerified ? "Unverify" : "Verify",
+                      onClick: () =>
+                        handleVerifyUser(row.accountId, !row.isVerified),
+                    },
+                  ]}
+                />
               )}
             />
           </Card>
@@ -466,13 +540,15 @@ const SuperAdminDashboard = () => {
               data={churchAdmins}
               loading={adminsLoading}
               actions={(row) => (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => navigate(`/dashboard/church-admin/${row.accountId}`)}
-                >
-                  View Dashboard
-                </Button>
+                <ActionMenu
+                  items={[
+                    {
+                      label: "View Details",
+                      onClick: () =>
+                        navigate(`/dashboard/church-admin/${row.accountId}`),
+                    },
+                  ]}
+                />
               )}
             />
           </Card>
@@ -497,14 +573,47 @@ const SuperAdminDashboard = () => {
               data={counselors}
               loading={counselorsLoading}
               actions={(row) => (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => navigate(`/dashboard/counselor/${row.accountId}`)}
-                >
-                  View Dashboard
-                </Button>
+                <ActionMenu
+                  items={[
+                    {
+                      label: "View Details",
+                      onClick: () =>
+                        navigate(`/dashboard/counselor/${row.accountId}`),
+                    },
+                  ]}
+                />
               )}
+            />
+          </Card>
+        </div>
+      )}
+
+      {activeTab === "matches" && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h1 className="text-3xl font-bold text-gray-900">All Matches</h1>
+            <Button onClick={() => setShowCreateMatch(true)}>
+              Create Match
+            </Button>
+          </div>
+          {matchesError && (
+            <Card>
+              <p className="text-red-600">Failed to load matches.</p>
+            </Card>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <StatCard
+              label="Total Matches"
+              value={matchesPagination?.total || 0}
+              icon={<Users className="w-8 h-8" />}
+              color="blue"
+            />
+          </div>
+          <Card title="Recent Matches" subtitle="Latest match activity">
+            <Table
+              columns={matchColumns}
+              data={matches}
+              loading={matchesLoading}
             />
           </Card>
         </div>
@@ -663,6 +772,66 @@ const SuperAdminDashboard = () => {
             onChange={(e) => setAdminForm({ ...adminForm, password: e.target.value })}
             required
           />
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={showCreateMatch}
+        onClose={() => setShowCreateMatch(false)}
+        title="Create Match"
+        size="md"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setShowCreateMatch(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateMatch}
+              disabled={
+                createMatchMutation.isPending ||
+                !matchForm.maleAccountId ||
+                !matchForm.femaleAccountId
+              }
+            >
+              Create Match
+            </Button>
+          </>
+        }
+      >
+        <form className="space-y-4">
+          <select
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            value={matchForm.maleAccountId}
+            onChange={(e) =>
+              setMatchForm({ ...matchForm, maleAccountId: e.target.value })
+            }
+            required
+          >
+            <option value="">Select Male User</option>
+            {users.map((u) => (
+              <option key={u.accountId} value={u.accountId}>
+                {u.firstName} {u.lastName} ({u.email})
+              </option>
+            ))}
+          </select>
+          <select
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            value={matchForm.femaleAccountId}
+            onChange={(e) =>
+              setMatchForm({ ...matchForm, femaleAccountId: e.target.value })
+            }
+            required
+          >
+            <option value="">Select Female User</option>
+            {users.map((u) => (
+              <option key={u.accountId} value={u.accountId}>
+                {u.firstName} {u.lastName} ({u.email})
+              </option>
+            ))}
+          </select>
         </form>
       </Modal>
 

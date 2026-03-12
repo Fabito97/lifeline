@@ -1,43 +1,89 @@
-import React, { useMemo, useState } from "react";
+import React, { useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
-  Ban,
+  Camera,
   CheckCircle2,
   Church,
-  Eye,
-  ShieldCheck,
-  ShieldX,
+  Mail,
+  Phone,
+  Plus,
+  Trash2,
   UserCheck,
   UserPen,
   XCircle,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { DashboardLayout } from "../features/dashboard/components/DashboardLayout";
-import { Card, Button, Toast } from "../components";
+import { Card, Button, Toast, Table, Modal } from "../components";
 import {
-  useChurchAdminCounselorsQuery,
-  useAssignCounselorMutation,
-} from "../api/queries/churchAdmin";
+  useUserProfileQuery,
+  useUpdateUserMutation,
+  useUserSocialMediaQuery,
+  useCreateUserSocialMediaMutation,
+  useDeleteUserSocialMediaMutation,
+  useUploadProfileImageMutation,
+} from "../api/queries/users";
+import {
+  useActiveMatchForAccountQuery,
+  useActiveMatchQuery,
+  useMatchDecisionMutation,
+  useMatchHistoryForAccountQuery,
+  useMatchHistoryQuery,
+} from "../api/queries/matching";
+import { useVerifyCounselorUserMutation } from "../api/queries/counselor";
 import {
   useAdminUpdateUserStatusMutation,
   useAdminVerifyUserMutation,
 } from "../api/queries/admin";
-import { useVerifyCounselorUserMutation } from "../api/queries/counselor";
-import {
-  useUserProfileQuery,
-  useUpdateUserMutation,
-} from "../api/queries/users";
+
+const SOCIAL_PLATFORM_OPTIONS = [
+  "Facebook",
+  "Instagram",
+  "X",
+  "LinkedIn",
+  "TikTok",
+  "YouTube",
+];
+
+const calculateAge = (dob) => {
+  if (!dob) return "N/A";
+  const date = new Date(dob);
+  if (Number.isNaN(date.getTime())) return "N/A";
+  const now = new Date();
+  let age = now.getFullYear() - date.getFullYear();
+  const monthDiff = now.getMonth() - date.getMonth();
+  const dayDiff = now.getDate() - date.getDate();
+  if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) age -= 1;
+  return age;
+};
+
+const getInitials = (firstName, lastName) => {
+  const first = firstName?.trim()?.[0] || "";
+  const last = lastName?.trim()?.[0] || "";
+  const value = `${first}${last}`.toUpperCase();
+  return value || "U";
+};
 
 const UserDashboard = () => {
   const { user } = useAuth();
   const { id } = useParams();
   const viewedAccountId = id || user?.id;
+  const fileInputRef = useRef(null);
 
   const [toast, setToast] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [selectedCounselorAccountId, setSelectedCounselorAccountId] =
-    useState("");
+  const [profileImageError, setProfileImageError] = useState(false);
+  const [showDeclineModal, setShowDeclineModal] = useState(false);
+  const [declineFeedback, setDeclineFeedback] = useState("");
+  const [socialForm, setSocialForm] = useState({
+    platform: SOCIAL_PLATFORM_OPTIONS[0],
+    handleOrUrl: "",
+  });
   const [formData, setFormData] = useState({
+    dateOfBirth: "",
+    occupation: "",
+    interests: "",
+    videoIntroUrl: "",
     originCountry: "",
     originState: "",
     originLga: "",
@@ -45,99 +91,111 @@ const UserDashboard = () => {
     residenceState: "",
     residenceCity: "",
     residenceAddress: "",
-    occupation: "",
-    interests: "",
     matchPreference: "my_church",
-  });
-
-  const mapProfileToFormData = (currentProfile) => ({
-    originCountry: currentProfile?.originCountry || "",
-    originState: currentProfile?.originState || "",
-    originLga: currentProfile?.originLga || "",
-    residenceCountry: currentProfile?.residenceCountry || "",
-    residenceState: currentProfile?.residenceState || "",
-    residenceCity: currentProfile?.residenceCity || "",
-    residenceAddress: currentProfile?.residenceAddress || "",
-    occupation: currentProfile?.occupation || "",
-    interests: currentProfile?.interests
-      ? JSON.stringify(currentProfile.interests)
-      : "",
-    matchPreference: currentProfile?.matchPreference || "my_church",
   });
 
   const profileQuery = useUserProfileQuery(viewedAccountId, {
     enabled: Boolean(viewedAccountId),
-    staleTime: 1000 * 60 * 5,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    onError: () =>
-      setToast({ type: "error", message: "Failed to fetch profile" }),
+  });
+  const socialMediaQuery = useUserSocialMediaQuery(viewedAccountId, {
+    enabled: Boolean(viewedAccountId),
   });
 
   const updateProfileMutation = useUpdateUserMutation();
+  const uploadProfileImageMutation = useUploadProfileImageMutation();
+  const createSocialMediaMutation = useCreateUserSocialMediaMutation();
+  const deleteSocialMediaMutation = useDeleteUserSocialMediaMutation();
   const adminVerifyMutation = useAdminVerifyUserMutation();
   const adminStatusMutation = useAdminUpdateUserStatusMutation();
   const counselorVerifyMutation = useVerifyCounselorUserMutation();
-  const assignCounselorMutation = useAssignCounselorMutation();
 
-  const profile =
-    profileQuery.data?.success && profileQuery.data?.data?.user
-      ? profileQuery.data.data.user
-      : null;
-
-  const isOwnProfile =
-    Boolean(profile?.accountId) && user?.id === profile.accountId;
-  const isHigherRoleViewer = Boolean(profile?.accountId) && !isOwnProfile;
-  const canEditProfile = isOwnProfile;
-
+  const profile = profileQuery.data?.data?.user || null;
+  const socialMedia = socialMediaQuery.data?.data?.socialMedia || [];
+  const isOwnProfile = profile?.accountId === user?.id;
   const canSuperAdminManage = user?.role === "SuperAdmin" && !isOwnProfile;
   const canCounselorManage = user?.role === "Counselor" && !isOwnProfile;
-  const canChurchAdminManage = user?.role === "ChurchAdmin" && !isOwnProfile;
+  const isViewingOther = Boolean(viewedAccountId && user?.id && viewedAccountId !== user?.id);
+  const canViewOtherMatches =
+    isViewingOther && ["SuperAdmin", "ChurchAdmin", "Counselor"].includes(user?.role);
 
-  const churchAdminCounselorsQuery = useChurchAdminCounselorsQuery(
-    profile?.church?.id,
-    {},
-    {
-      enabled: canChurchAdminManage && Boolean(profile?.church?.id),
-      staleTime: 1000 * 60 * 2,
-      onError: () =>
-        setToast({ type: "error", message: "Failed to fetch counselors" }),
-    },
-  );
-
-  const counselors = churchAdminCounselorsQuery.data?.success
-    ? churchAdminCounselorsQuery.data.data.counselors || []
-    : [];
-
-  const profileName = useMemo(() => {
-    if (profile?.firstName || profile?.lastName) {
-      return `${profile?.firstName || ""} ${profile?.lastName || ""}`.trim();
-    }
-    return "User";
-  }, [profile?.firstName, profile?.lastName]);
-
-  const isLoadingInitialProfile = profileQuery.isLoading && !profile;
   const anyActionLoading =
     updateProfileMutation.isPending ||
+    uploadProfileImageMutation.isPending ||
+    createSocialMediaMutation.isPending ||
+    deleteSocialMediaMutation.isPending ||
     adminVerifyMutation.isPending ||
     adminStatusMutation.isPending ||
-    counselorVerifyMutation.isPending ||
-    assignCounselorMutation.isPending;
+    counselorVerifyMutation.isPending;
 
-  const handleUpdateProfile = async (e) => {
+  const activeMatchSelfQuery = useActiveMatchQuery({
+    enabled: Boolean(viewedAccountId) && !canViewOtherMatches,
+  });
+  const activeMatchOtherQuery = useActiveMatchForAccountQuery(viewedAccountId, {
+    enabled: Boolean(viewedAccountId) && canViewOtherMatches,
+  });
+  const matchHistorySelfQuery = useMatchHistoryQuery({
+    enabled: Boolean(viewedAccountId) && !canViewOtherMatches,
+  });
+  const matchHistoryOtherQuery = useMatchHistoryForAccountQuery(viewedAccountId, {
+    enabled: Boolean(viewedAccountId) && canViewOtherMatches,
+  });
+  const matchDecisionMutation = useMatchDecisionMutation();
+
+  const activeMatchData = canViewOtherMatches
+    ? activeMatchOtherQuery.data
+    : activeMatchSelfQuery.data;
+  const matchHistoryData = canViewOtherMatches
+    ? matchHistoryOtherQuery.data
+    : matchHistorySelfQuery.data;
+
+  const activeMatch = activeMatchData?.data?.match || null;
+  const matchHistory = matchHistoryData?.data?.matches || [];
+
+  const matchLoading =
+    activeMatchSelfQuery.isLoading ||
+    activeMatchOtherQuery.isLoading ||
+    activeMatchSelfQuery.isFetching ||
+    activeMatchOtherQuery.isFetching;
+  const matchHistoryLoading =
+    matchHistorySelfQuery.isLoading ||
+    matchHistoryOtherQuery.isLoading ||
+    matchHistorySelfQuery.isFetching ||
+    matchHistoryOtherQuery.isFetching;
+
+  const startEdit = () => {
+    if (!profile) return;
+    setFormData({
+      dateOfBirth: profile.dateOfBirth
+        ? new Date(profile.dateOfBirth).toISOString().slice(0, 10)
+        : "",
+      occupation: profile.occupation || "",
+      interests: profile.interests ? JSON.stringify(profile.interests) : "",
+      videoIntroUrl: profile.videoIntroUrl || "",
+      originCountry: profile.originCountry || "",
+      originState: profile.originState || "",
+      originLga: profile.originLga || "",
+      residenceCountry: profile.residenceCountry || "",
+      residenceState: profile.residenceState || "",
+      residenceCity: profile.residenceCity || "",
+      residenceAddress: profile.residenceAddress || "",
+      matchPreference: profile.matchPreference || "my_church",
+    });
+    setIsEditing(true);
+  };
+
+  const saveProfile = async (e) => {
     e.preventDefault();
     try {
-      const updateData = {
-        ...formData,
-        interests: formData.interests ? JSON.parse(formData.interests) : null,
-      };
       const response = await updateProfileMutation.mutateAsync({
         id: viewedAccountId,
-        data: updateData,
+        data: {
+          ...formData,
+          dateOfBirth: formData.dateOfBirth || null,
+          interests: formData.interests ? JSON.parse(formData.interests) : null,
+        },
       });
       if (response.success) {
-        setToast({ type: "success", message: "Profile updated successfully!" });
+        setToast({ type: "success", message: "Profile updated successfully" });
         setIsEditing(false);
       }
     } catch {
@@ -145,159 +203,204 @@ const UserDashboard = () => {
     }
   };
 
-  const handleSuperAdminVerify = async (isVerified) => {
-    if (!profile?.accountId) return;
+  const uploadAvatar = async (file) => {
+    if (!file || !viewedAccountId) return;
     try {
-      const response = await adminVerifyMutation.mutateAsync({
-        accountId: profile.accountId,
-        isVerified,
+      const response = await uploadProfileImageMutation.mutateAsync({
+        id: viewedAccountId,
+        file,
       });
       if (response.success) {
-        setToast({
-          type: "success",
-          message: `User ${isVerified ? "verified" : "unverified"} successfully`,
-        });
+        setProfileImageError(false);
+        setToast({ type: "success", message: "Profile image updated" });
       }
-    } catch {
-      setToast({ type: "error", message: "Failed to update verification" });
+    } catch (error) {
+      setToast({
+        type: "error",
+        message: error?.response?.data?.message || "Upload failed",
+      });
     }
   };
 
-  const handleSuperAdminStatus = async (status) => {
-    if (!profile?.accountId) return;
+  const handleMatchDecision = async (decision, feedback = "") => {
+    if (!activeMatch?.id) return;
     try {
-      const response = await adminStatusMutation.mutateAsync({
-        accountId: profile.accountId,
-        status,
+      const response = await matchDecisionMutation.mutateAsync({
+        matchId: activeMatch.id,
+        data: { decision, feedback: feedback || undefined },
       });
       if (response.success) {
         setToast({
           type: "success",
-          message: `User ${status === "active" ? "activated" : "suspended"} successfully`,
+          message:
+            decision === "ACCEPTED"
+              ? "Match accepted"
+              : "Match declined",
         });
+        setShowDeclineModal(false);
+        setDeclineFeedback("");
       }
-    } catch {
-      setToast({ type: "error", message: "Failed to update account status" });
+    } catch (error) {
+      setToast({
+        type: "error",
+        message: error?.response?.data?.message || "Failed to update match",
+      });
     }
   };
 
-  const handleCounselorDecision = async (status) => {
-    if (!profile?.accountId) return;
-    try {
-      const response = await counselorVerifyMutation.mutateAsync({
-        userAccountId: profile.accountId,
-        status,
-        notes: "",
-      });
-      if (response.success) {
-        setToast({
-          type: "success",
-          message: `User ${status === "verified" ? "verified" : "rejected"} successfully`,
-        });
-      }
-    } catch {
-      setToast({ type: "error", message: "Action not allowed for this user" });
-    }
-  };
+  const matchHistoryColumns = [
+    {
+      key: "createdAt",
+      label: "Date",
+      render: (value) =>
+        value ? new Date(value).toLocaleDateString() : "N/A",
+    },
+    { key: "status", label: "Status" },
+    { key: "myDecision", label: "Your Decision" },
+    {
+      key: "participant",
+      label: "Matched With",
+      render: (_, row) =>
+        row.participant
+          ? `${row.participant.firstName} ${row.participant.lastName}`
+          : "N/A",
+    },
+  ];
 
-  const handleAssignCounselor = async () => {
-    if (
-      !profile?.accountId ||
-      !selectedCounselorAccountId ||
-      !profile?.church?.id
-    ) {
-      setToast({ type: "error", message: "Select a counselor first" });
-      return;
-    }
-
+  const addSocial = async () => {
+    if (!socialForm.handleOrUrl) return;
     try {
-      const response = await assignCounselorMutation.mutateAsync({
-        userAccountId: profile.accountId,
-        counselorAccountId: selectedCounselorAccountId,
-        churchId: profile.church.id,
+      await createSocialMediaMutation.mutateAsync({
+        id: viewedAccountId,
+        data: socialForm,
       });
-      if (response.success) {
-        setToast({
-          type: "success",
-          message: "Counselor assigned successfully",
-        });
-      }
-    } catch {
-      setToast({ type: "error", message: "Failed to assign counselor" });
+      setSocialForm({ platform: SOCIAL_PLATFORM_OPTIONS[0], handleOrUrl: "" });
+      setToast({ type: "success", message: "Social handle added" });
+    } catch (error) {
+      setToast({
+        type: "error",
+        message: error?.response?.data?.message || "Failed to add handle",
+      });
     }
   };
 
   const sidebar = (
-    <nav className="space-y-2">
-      <div className="px-4 py-2 bg-blue-50 rounded-lg">
-        <p className="text-xs text-gray-600">Verification Status</p>
-        <p className="font-semibold text-gray-900">
+    <div className="space-y-2">
+      <div className="px-4 py-2 bg-gray-50 rounded-lg">
+        <p className="text-xs text-gray-600">Verification</p>
+        <p className="font-semibold">
           {profile?.verificationStatus || "pending"}
         </p>
       </div>
-      <div className="px-4 py-2 bg-gray-50 rounded-lg">
-        <p className="text-xs text-gray-600">Account Status</p>
-        <p className="font-semibold text-gray-900">
-          {profile?.accountStatus || "active"}
-        </p>
-      </div>
-      {profile?.isEmailVerified && (
-        <div className="px-4 py-2 bg-green-50 rounded-lg">
-          <p className="text-xs text-gray-600">Email</p>
-          <p className="font-semibold text-green-700">Verified</p>
-        </div>
-      )}
-    </nav>
+    </div>
   );
 
   return (
     <DashboardLayout sidebar={sidebar}>
-      {isLoadingInitialProfile && (
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading profile...</p>
-          </div>
-        </div>
-      )}
-
-      {!isLoadingInitialProfile && profileQuery.isError && (
-        <Card>
-          <div className="space-y-3">
-            <p className="text-red-600">Failed to load profile data.</p>
-            <Button onClick={() => profileQuery.refetch()} variant="outline">
-              Retry
-            </Button>
-          </div>
-        </Card>
-      )}
-
-      {!isLoadingInitialProfile && !profileQuery.isError && profile && (
+      {!profile && <p className="text-gray-600">Loading profile...</p>}
+      {profile && (
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-                {isHigherRoleViewer ? (
-                  <>
-                    <Eye className="w-7 h-7 text-blue-600" />
-                    {`Viewing ${profileName}'s Dashboard`}
-                  </>
-                ) : (
-                  "My Profile"
-                )}
-              </h1>
-            </div>
-            {canEditProfile && (
-              <Button
-                onClick={() => {
-                  if (isEditing) {
-                    setIsEditing(false);
-                    return;
+          <Card className="bg-gradient-to-r from-blue-50 to-cyan-50 border border-blue-100">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="relative">
+                  {!profile.profilePictureUrl || profileImageError ? (
+                    <div className="w-24 h-24 rounded-full border-4 border-white shadow bg-gradient-to-br from-blue-500 to-cyan-500 text-white flex items-center justify-center text-2xl font-bold">
+                      {getInitials(profile.firstName, profile.lastName)}
+                    </div>
+                  ) : (
+                    <img
+                      src={profile.profilePictureUrl}
+                      alt="Profile"
+                      className="w-24 h-24 rounded-full object-cover border-4 border-white shadow"
+                      onError={() => setProfileImageError(true)}
+                    />
+                  )}
+                  {isOwnProfile && (
+                    <>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) =>
+                          uploadAvatar(e.target.files?.[0] || null)
+                        }
+                      />
+                      <button
+                        type="button"
+                        className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <Camera className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+                </div>
+                <div>
+                  <h1 className="text-2xl font-bold">
+                    {profile.firstName} {profile.lastName}
+                  </h1>
+                  <p className="text-gray-600 flex items-center gap-2">
+                    <Mail className="w-4 h-4" />
+                    {profile.email}
+                  </p>
+                  <p className="text-gray-600 flex items-center gap-2">
+                    <Phone className="w-4 h-4" />
+                    {profile.phone || "N/A"}
+                  </p>
+                </div>
+              </div>
+              {/* {isOwnProfile && (
+                <Button
+                  onClick={() =>
+                    isEditing ? setIsEditing(false) : startEdit()
                   }
-                  setFormData(mapProfileToFormData(profile));
-                  setIsEditing(true);
-                }}
-                variant={isEditing ? "secondary" : "primary"}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <UserPen className="w-4 h-4" />
+                    {isEditing ? "Cancel" : "Edit Profile"}
+                  </span>
+                </Button>
+              )} */}
+            </div>
+          </Card>
+
+          <Card title="Church & Counselor Details">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm text-gray-600 flex items-center gap-2">
+                  <Church className="w-4 h-4" />
+                  Church
+                </p>
+                <p className="font-semibold">
+                  {profile.church?.officialName || profile.church?.aka || "N/A"}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600 flex items-center gap-2">
+                  <UserCheck className="w-4 h-4" />
+                  Assigned Counselor
+                </p>
+                <p className="font-semibold">
+                  {profile.assignedCounselor
+                    ? `${profile.assignedCounselor.firstName} ${profile.assignedCounselor.lastName}`
+                    : "N/A"}
+                </p>
+                <p className="text-sm text-gray-600">
+                  {profile.assignedCounselor?.email || ""}
+                </p>
+              </div>
+            </div>
+          </Card>
+          <Card
+            title="Profile Details"
+            subtitle="User details available to all roles with access"
+          >
+            {isOwnProfile && !isEditing && (
+              <Button
+                onClick={() => (isEditing ? setIsEditing(false) : startEdit())}
+                className="mb-4"
               >
                 <span className="inline-flex items-center gap-2">
                   <UserPen className="w-4 h-4" />
@@ -305,446 +408,378 @@ const UserDashboard = () => {
                 </span>
               </Button>
             )}
-          </div>
-
-          <Card title={`${isEditing ? "Edit Account Information" : "Account Information"}`}>
-            {!isEditing && <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <div>
-                <label className="text-sm text-gray-600">First Name</label>
-                <p className="font-semibold text-gray-900">
-                  {profile.firstName}
+            {!isEditing && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <p>
+                  <strong className="block">Gender:</strong>{" "}
+                  {profile.gender || "N/A"}
                 </p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Last Name</label>
-                <p className="font-semibold text-gray-900">
-                  {profile.lastName || "N/A"}
+                <p>
+                  <strong className="block">Age:</strong>{" "}
+                  {calculateAge(profile.dateOfBirth)}
                 </p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Email</label>
-                <p className="font-semibold text-gray-900">{profile.email}</p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Phone</label>
-                <p className="font-semibold text-gray-900">
-                  {profile.phone || "N/A"}
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Email Verified</label>
-                <p
-                  className={`font-semibold ${profile.isEmailVerified ? "text-green-600" : "text-red-600"}`}
-                >
-                  {profile.isEmailVerified ? "Yes" : "No"}
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Account Status</label>
-                <p className="font-semibold text-gray-900">
-                  {profile.accountStatus || "active"}
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Created At</label>
-                <p className="font-semibold text-gray-900">
-                  {profile.createdAt
-                    ? new Date(profile.createdAt).toLocaleDateString()
+                <p>
+                  <strong className="block">Date of Birth:</strong>{" "}
+                  {profile.dateOfBirth
+                    ? new Date(profile.dateOfBirth).toLocaleDateString()
                     : "N/A"}
                 </p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Verification</label>
-                <p className="font-semibold text-gray-900 uppercase">
-                  {profile.verificationStatus || "pending"}
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">
-                  Subscription Tier
-                </label>
-                <p className="font-semibold text-gray-900 uppercase">
-                  {profile.subscriptionTier || "N/A"}
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">
-                  Subscription Status
-                </label>
-                <p className="font-semibold text-gray-900">
-                  {profile.subscriptionStatus || "N/A"}
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Origin Country</label>
-                <p className="font-semibold text-gray-900">
-                  {profile.originCountry || "N/A"}
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Origin State</label>
-                <p className="font-semibold text-gray-900">
-                  {profile.originState || "N/A"}
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Origin LGA</label>
-                <p className="font-semibold text-gray-900">
-                  {profile.originLga || "N/A"}
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">
-                  Residence Country
-                </label>
-                <p className="font-semibold text-gray-900">
-                  {profile.residenceCountry || "N/A"}
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Residence State</label>
-                <p className="font-semibold text-gray-900">
-                  {profile.residenceState || "N/A"}
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Residence City</label>
-                <p className="font-semibold text-gray-900">
-                  {profile.residenceCity || "N/A"}
-                </p>
-              </div>
-              <div className="lg:col-span-2">
-                <label className="text-sm text-gray-600">
-                  Residence Address
-                </label>
-                <p className="font-semibold text-gray-900">
-                  {profile.residenceAddress || "N/A"}
-                </p>
-              </div>
-              <div>
-                <label className="text-sm text-gray-600">Occupation</label>
-                <p className="font-semibold text-gray-900">
+                <p>
+                  <strong className="block">Occupation:</strong>{" "}
                   {profile.occupation || "N/A"}
                 </p>
-              </div>
-              <div className="lg:col-span-2">
-                <label className="text-sm text-gray-600">Interests</label>
-                <p className="font-semibold text-gray-900">
+                <p>
+                  <strong className="block">Subscription:</strong>{" "}
+                  {profile.subscriptionTier || "N/A"} /{" "}
+                  {profile.subscriptionStatus || "N/A"}
+                </p>
+                <p>
+                  <strong className="block">Match Preference:</strong>{" "}
+                  {profile.matchPreference || "N/A"}
+                </p>
+                <p>
+                  <strong className="block">Origin:</strong>{" "}
+                  {[
+                    profile.originCountry,
+                    profile.originState,
+                    profile.originLga,
+                  ]
+                    .filter(Boolean)
+                    .join(", ") || "N/A"}
+                </p>
+                <p>
+                  <strong className="block">Residence:</strong>{" "}
+                  {[
+                    profile.residenceCountry,
+                    profile.residenceState,
+                    profile.residenceCity,
+                  ]
+                    .filter(Boolean)
+                    .join(", ") || "N/A"}
+                </p>
+                <p>
+                  <strong className="block">Address:</strong>{" "}
+                  {profile.residenceAddress || "N/A"}
+                </p>
+                <p className="md:col-span-2">
+                  <strong className="block">Video Intro:</strong>{" "}
+                  {profile.videoIntroUrl || "N/A"}
+                </p>
+                <p className="md:col-span-2">
+                  <strong className="block">Interests:</strong>{" "}
                   {Array.isArray(profile.interests)
-                    ? profile.interests.join(", ") || "N/A"
+                    ? profile.interests.join(", ")
                     : profile.interests || "N/A"}
                 </p>
               </div>
-              <div>
-                <label className="text-sm text-gray-600">
-                  Match Preference
-                </label>
-                <p className="font-semibold text-gray-900">
-                  {profile.matchPreference || "N/A"}
-                </p>
-              </div>
-            </div>}
-
-            {isEditing && canEditProfile && (
-              
-                <form onSubmit={handleUpdateProfile} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Origin Country
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                        value={formData.originCountry}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            originCountry: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Origin State
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                        value={formData.originState}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            originState: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Origin LGA
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                        value={formData.originLga}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            originLga: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Residence Country
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                        value={formData.residenceCountry}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            residenceCountry: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Residence State
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                        value={formData.residenceState}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            residenceState: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Residence City
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                        value={formData.residenceCity}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            residenceCity: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Residence Address
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                        value={formData.residenceAddress}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            residenceAddress: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Occupation
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                        value={formData.occupation}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            occupation: e.target.value,
-                          })
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Match Preference
-                      </label>
-                      <select
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                        value={formData.matchPreference}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            matchPreference: e.target.value,
-                          })
-                        }
-                      >
-                        <option value="my_church">My Church</option>
-                        <option value="my_church_plus">My Church +</option>
-                        <option value="other_churches">Other Churches</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-4">
-                    <Button type="submit" disabled={anyActionLoading}>
-                      Save Changes
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => setIsEditing(false)}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </form>
-              
             )}
-          </Card>
 
-          <Card title="Church Information" subtitle="">
-            {profile.church ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-gray-600 flex items-center gap-2">
-                    <Church className="w-4 h-4" />
-                    Name
-                  </p>
-                  <p className="font-semibold text-gray-900">
-                    {profile.church.officialName || profile.church.aka || "N/A"}
-                  </p>
+            {isEditing && (
+              <form onSubmit={saveProfile} className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <input
+                    className="px-3 py-2 border rounded-lg"
+                    type="date"
+                    value={formData.dateOfBirth}
+                    onChange={(e) =>
+                      setFormData({ ...formData, dateOfBirth: e.target.value })
+                    }
+                  />
+                  <input
+                    className="px-3 py-2 border rounded-lg"
+                    placeholder="Occupation"
+                    value={formData.occupation}
+                    onChange={(e) =>
+                      setFormData({ ...formData, occupation: e.target.value })
+                    }
+                  />
+                  <input
+                    className="px-3 py-2 border rounded-lg"
+                    placeholder="Origin Country"
+                    value={formData.originCountry}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        originCountry: e.target.value,
+                      })
+                    }
+                  />
+                  <input
+                    className="px-3 py-2 border rounded-lg"
+                    placeholder="Origin State"
+                    value={formData.originState}
+                    onChange={(e) =>
+                      setFormData({ ...formData, originState: e.target.value })
+                    }
+                  />
+                  <input
+                    className="px-3 py-2 border rounded-lg"
+                    placeholder="Origin LGA"
+                    value={formData.originLga}
+                    onChange={(e) =>
+                      setFormData({ ...formData, originLga: e.target.value })
+                    }
+                  />
+                  <input
+                    className="px-3 py-2 border rounded-lg"
+                    placeholder="Residence Country"
+                    value={formData.residenceCountry}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        residenceCountry: e.target.value,
+                      })
+                    }
+                  />
+                  <input
+                    className="px-3 py-2 border rounded-lg"
+                    placeholder="Residence State"
+                    value={formData.residenceState}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        residenceState: e.target.value,
+                      })
+                    }
+                  />
+                  <input
+                    className="px-3 py-2 border rounded-lg"
+                    placeholder="Residence City"
+                    value={formData.residenceCity}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        residenceCity: e.target.value,
+                      })
+                    }
+                  />
+                  <input
+                    className="px-3 py-2 border rounded-lg md:col-span-2"
+                    placeholder="Residence Address"
+                    value={formData.residenceAddress}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        residenceAddress: e.target.value,
+                      })
+                    }
+                  />
+                  <input
+                    className="px-3 py-2 border rounded-lg md:col-span-2"
+                    placeholder='Interests JSON e.g. ["music","books"]'
+                    value={formData.interests}
+                    onChange={(e) =>
+                      setFormData({ ...formData, interests: e.target.value })
+                    }
+                  />
                 </div>
-                <div>
-                  <p className="text-sm text-gray-600">Church AKA</p>
-                  <p className="font-semibold text-gray-900">
-                    {profile.church.aka}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <p className="text-gray-600">No church assigned.</p>
-            )}
-          </Card>
-
-          <Card title="Assigned Counselor" subtitle="">
-            {profile.assignedCounselor ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-gray-600 flex items-center gap-2">
-                    <UserCheck className="w-4 h-4" />
-                    Counselor
-                  </p>
-                  <p className="font-semibold text-gray-900">
-                    {profile.assignedCounselor.firstName}{" "}
-                    {profile.assignedCounselor.lastName}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Email</p>
-                  <p className="font-semibold text-gray-900">
-                    {profile.assignedCounselor.email || "N/A"}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <p className="text-gray-600">No counselor assigned.</p>
-            )}
-          </Card>
-
-          {profile.isVerified && (
-            <Card title="Verification Status">
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm text-gray-600">Status</label>
-                  <p
-                    className={`font-semibold text-lg ${
-                      profile.verificationStatus === "verified"
-                        ? "text-green-600"
-                        : profile.verificationStatus === "rejected"
-                          ? "text-red-600"
-                          : "text-yellow-600"
-                    }`}
+                <div className="flex gap-2">
+                  <Button type="submit" disabled={anyActionLoading}>
+                    Save
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setIsEditing(false)}
                   >
-                    {profile.verificationStatus?.toUpperCase() || "PENDING"}
-                  </p>
+                    Cancel
+                  </Button>
                 </div>
-                {profile.verificationNotes && (
-                  <div>
-                    <label className="text-sm text-gray-600">Notes</label>
-                    <p className="text-gray-900">{profile.verificationNotes}</p>
+              </form>
+            )}
+          </Card>
+
+          <Card title="Match Status" subtitle="Your active match and history">
+            {matchLoading ? (
+              <p className="text-gray-600">Loading match details...</p>
+            ) : !activeMatch ? (
+              <p className="text-gray-600">No active match right now.</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center overflow-hidden">
+                    {activeMatch.participant?.profilePictureUrl ? (
+                      <img
+                        src={activeMatch.participant.profilePictureUrl}
+                        alt="Match"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-xl font-bold text-blue-700">
+                        {getInitials(
+                          activeMatch.participant?.firstName,
+                          activeMatch.participant?.lastName,
+                        )}
+                      </span>
+                    )}
                   </div>
-                )}
-                {profile.verifiedAt && (
                   <div>
-                    <label className="text-sm text-gray-600">
-                      Verified Date
-                    </label>
-                    <p className="text-gray-900">
-                      {new Date(profile.verifiedAt).toLocaleDateString()}
+                    <p className="font-semibold">
+                      {activeMatch.participant?.firstName}{" "}
+                      {activeMatch.participant?.lastName}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      {activeMatch.participant?.age || "N/A"} •{" "}
+                      {activeMatch.participant?.gender || "N/A"}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      {activeMatch.participant?.church?.officialName ||
+                        activeMatch.participant?.church?.aka ||
+                        "No church info"}
                     </p>
                   </div>
-                )}
-              </div>
-            </Card>
-          )}
+                </div>
 
-          <Card title="Subscription">
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-              <div>
-                <label className="text-sm text-gray-600">Tier</label>
-                <p className="font-semibold text-gray-900 uppercase">
-                  {profile.subscriptionTier}
-                </p>
+                <div className="text-sm space-y-2">
+                  <p>
+                    <strong>Status:</strong> {activeMatch.status}
+                  </p>
+                  <p>
+                    <strong>Decision:</strong> {activeMatch.myDecision}
+                  </p>
+                  <p>
+                    <strong>Occupation:</strong>{" "}
+                    {activeMatch.participant?.occupation || "N/A"}
+                  </p>
+                  <p>
+                    <strong>Residence:</strong>{" "}
+                    {[
+                      activeMatch.participant?.residence?.city,
+                      activeMatch.participant?.residence?.state,
+                      activeMatch.participant?.residence?.country,
+                    ]
+                      .filter(Boolean)
+                      .join(", ") || "N/A"}
+                  </p>
+                </div>
+
+                <div className="text-sm space-y-2">
+                  <p>
+                    <strong>Interests:</strong>{" "}
+                    {Array.isArray(activeMatch.participant?.interests)
+                      ? activeMatch.participant.interests.join(", ")
+                      : activeMatch.participant?.interests || "N/A"}
+                  </p>
+                  <p>
+                    <strong>Social Media:</strong>{" "}
+                    {activeMatch.participant?.socialMedia?.length
+                      ? `${activeMatch.participant.socialMedia.length} handles`
+                      : "N/A"}
+                  </p>
+                  {isOwnProfile && activeMatch.canDecide && (
+                    <div className="flex gap-2 pt-2">
+                      <Button
+                        size="sm"
+                        variant="success"
+                        onClick={() => handleMatchDecision("ACCEPTED")}
+                        disabled={matchDecisionMutation.isPending}
+                      >
+                        Accept
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        onClick={() => setShowDeclineModal(true)}
+                        disabled={matchDecisionMutation.isPending}
+                      >
+                        Decline
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div>
-                <label className="text-sm text-gray-600">Status</label>
-                <p
-                  className={`font-semibold ${profile.subscriptionStatus === "active" ? "text-green-600" : "text-gray-600"}`}
-                >
-                  {profile.subscriptionStatus}
-                </p>
-              </div>
+            )}
+
+            <div className="mt-6">
+              <h3 className="font-semibold mb-2">Match History</h3>
+              <Table
+                columns={matchHistoryColumns}
+                data={matchHistory}
+                loading={matchHistoryLoading}
+              />
             </div>
           </Card>
 
-          {(canSuperAdminManage ||
-            canCounselorManage ||
-            canChurchAdminManage) && (
-            <Card
-              title="Role Actions"
-              subtitle="Actions available for your role"
-            >
-              <div className="flex flex-col gap-4">
-                {canSuperAdminManage && (
-                  <div className="flex flex-wrap gap-3">
+          <Card title="Social Media" subtitle="Curated platform options only">
+            <div className="space-y-2 mb-4">
+              {socialMedia.map((item) => (
+                <div
+                  key={item.id}
+                  className=""
+                >
+                    <h3>{item.platform}</h3>
+                  <div className="flex justify-between items-center border rounded-lg px-3 py-2">
+
+                  <p>
+                    <span className="text-gray-600">{item.handleOrUrl}</span>
+                  </p>
+                  {isOwnProfile && (
                     <Button
-                      variant={profile.isVerified ? "secondary" : "success"}
+                      variant="danger"
                       onClick={() =>
-                        handleSuperAdminVerify(!profile.isVerified)
+                        deleteSocialMediaMutation.mutateAsync({
+                          id: viewedAccountId,
+                          socialId: item.id,
+                        })
                       }
-                      disabled={anyActionLoading}
                     >
-                      <span className="inline-flex items-center gap-2">
-                        {profile.isVerified ? (
-                          <ShieldX className="w-4 h-4" />
-                        ) : (
-                          <ShieldCheck className="w-4 h-4" />
-                        )}
-                        {profile.isVerified ? "Unverify User" : "Verify User"}
-                      </span>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {isOwnProfile && socialMedia.length < 4 && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <select
+                  className="px-3 py-2 border rounded-lg"
+                  value={socialForm.platform}
+                  onChange={(e) =>
+                    setSocialForm({ ...socialForm, platform: e.target.value })
+                  }
+                >
+                  {SOCIAL_PLATFORM_OPTIONS.map((platform) => (
+                    <option key={platform} value={platform}>
+                      {platform}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  className="px-3 py-2 border rounded-lg"
+                  placeholder="Handle or URL"
+                  value={socialForm.handleOrUrl}
+                  onChange={(e) =>
+                    setSocialForm({
+                      ...socialForm,
+                      handleOrUrl: e.target.value,
+                    })
+                  }
+                />
+                <Button onClick={addSocial}>
+                  <span className="inline-flex items-center gap-2">
+                    <Plus className="w-4 h-4" />
+                    Add
+                  </span>
+                </Button>
+              </div>
+            )}
+          </Card>
+
+          {(canSuperAdminManage || canCounselorManage) && (
+            <Card title="Role Actions">
+              <div className="flex flex-wrap gap-2">
+                {canSuperAdminManage && (
+                  <>
+                    <Button
+                      onClick={() =>
+                        adminVerifyMutation.mutateAsync({
+                          accountId: profile.accountId,
+                          isVerified: !profile.isVerified,
+                        })
+                      }
+                    >
+                      {profile.isVerified ? "Unverify User" : "Verify User"}
                     </Button>
                     <Button
                       variant={
@@ -753,82 +788,54 @@ const UserDashboard = () => {
                           : "success"
                       }
                       onClick={() =>
-                        handleSuperAdminStatus(
-                          profile.accountStatus === "active"
-                            ? "suspended"
-                            : "active",
-                        )
+                        adminStatusMutation.mutateAsync({
+                          accountId: profile.accountId,
+                          status:
+                            profile.accountStatus === "active"
+                              ? "suspended"
+                              : "active",
+                        })
                       }
-                      disabled={anyActionLoading}
                     >
-                      <span className="inline-flex items-center gap-2">
-                        {profile.accountStatus === "active" ? (
-                          <Ban className="w-4 h-4" />
-                        ) : (
-                          <CheckCircle2 className="w-4 h-4" />
-                        )}
-                        {profile.accountStatus === "active"
-                          ? "Suspend User"
-                          : "Activate User"}
-                      </span>
+                      {profile.accountStatus === "active"
+                        ? "Suspend User"
+                        : "Activate User"}
                     </Button>
-                  </div>
+                  </>
                 )}
-
                 {canCounselorManage && (
-                  <div className="flex flex-wrap gap-3">
+                  <>
                     <Button
                       variant="success"
-                      onClick={() => handleCounselorDecision("verified")}
-                      disabled={anyActionLoading}
+                      onClick={() =>
+                        counselorVerifyMutation.mutateAsync({
+                          userAccountId: profile.accountId,
+                          status: "verified",
+                          notes: "",
+                        })
+                      }
                     >
                       <span className="inline-flex items-center gap-2">
                         <CheckCircle2 className="w-4 h-4" />
-                        Verify User
+                        Verify
                       </span>
                     </Button>
                     <Button
                       variant="danger"
-                      onClick={() => handleCounselorDecision("rejected")}
-                      disabled={anyActionLoading}
+                      onClick={() =>
+                        counselorVerifyMutation.mutateAsync({
+                          userAccountId: profile.accountId,
+                          status: "rejected",
+                          notes: "",
+                        })
+                      }
                     >
                       <span className="inline-flex items-center gap-2">
                         <XCircle className="w-4 h-4" />
-                        Reject User
+                        Reject
                       </span>
                     </Button>
-                  </div>
-                )}
-
-                {canChurchAdminManage && (
-                  <div className="flex flex-col md:flex-row md:items-center gap-3">
-                    <select
-                      className="w-full md:w-96 px-4 py-2 border border-gray-300 rounded-lg"
-                      value={selectedCounselorAccountId}
-                      onChange={(e) =>
-                        setSelectedCounselorAccountId(e.target.value)
-                      }
-                      disabled={
-                        churchAdminCounselorsQuery.isLoading || anyActionLoading
-                      }
-                    >
-                      <option value="">Select counselor</option>
-                      {counselors.map((counselor) => (
-                        <option
-                          key={counselor.accountId}
-                          value={counselor.accountId}
-                        >
-                          {counselor.firstName} {counselor.lastName}
-                        </option>
-                      ))}
-                    </select>
-                    <Button
-                      onClick={handleAssignCounselor}
-                      disabled={anyActionLoading}
-                    >
-                      Assign Counselor
-                    </Button>
-                  </div>
+                  </>
                 )}
               </div>
             </Card>
@@ -843,6 +850,43 @@ const UserDashboard = () => {
           onClose={() => setToast(null)}
         />
       )}
+
+      <Modal
+        isOpen={showDeclineModal}
+        onClose={() => setShowDeclineModal(false)}
+        title="Decline Match"
+        size="md"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setShowDeclineModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => handleMatchDecision("DECLINED", declineFeedback)}
+              disabled={matchDecisionMutation.isPending || !declineFeedback.trim()}
+            >
+              Submit Decline
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600">
+            Please share a brief reason for declining this match.
+          </p>
+          <textarea
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            rows="4"
+            placeholder="Your feedback..."
+            value={declineFeedback}
+            onChange={(e) => setDeclineFeedback(e.target.value)}
+          />
+        </div>
+      </Modal>
     </DashboardLayout>
   );
 };

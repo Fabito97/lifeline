@@ -13,18 +13,20 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const initAuth = async () => {
       const token = localStorage.getItem("token");
+
       if (token) {
         try {
           const response = await queryClient.fetchQuery({
             queryKey: queryKeys.auth.me(),
             queryFn: authService.getMe,
-            staleTime: 1000 * 60 * 2,
           });
+
           if (response.success && response.data.user) {
             setUser(response.data.user);
           } else {
             localStorage.removeItem("token");
             setUser(null);
+            
             queryClient.removeQueries({ queryKey: queryKeys.auth.me() });
           }
         } catch {
@@ -43,13 +45,16 @@ export const AuthProvider = ({ children }) => {
     setError(null);
     try {
       const response = await authService.login(email, password);
+
       if (response.success && response.data.token) {
         localStorage.setItem("token", response.data.token);
         setUser(response.data.user);
+
         queryClient.setQueryData(queryKeys.auth.me(), {
           success: true,
           data: { user: response.data.user },
         });
+
         return response.data;
       } else {
         throw new Error(response.message || "Login failed");
@@ -65,6 +70,7 @@ export const AuthProvider = ({ children }) => {
     setError(null);
     try {
       const response = await authService.signup(data);
+
       if (response.success) {
         // localStorage.setItem("token", response.data.token);
         setUser(response.data.user);
@@ -72,6 +78,7 @@ export const AuthProvider = ({ children }) => {
           success: true,
           data: { user: response.data.user },
         });
+
         return response.data;
       } else {
         throw new Error(response.message || "Signup failed");

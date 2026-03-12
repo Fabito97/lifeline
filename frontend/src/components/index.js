@@ -6,3 +6,4 @@ export { StatCard } from "../features/dashboard/components/StatCard";
 export { Toast } from "./Toast";
 export { ConfirmModal } from "./ConfirmModal";
 export { default as Input } from "./Input";
+export { ActionMenu } from "./ActionMenu";

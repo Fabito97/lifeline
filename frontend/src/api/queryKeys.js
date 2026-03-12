@@ -13,6 +13,7 @@ export const queryKeys = {
     profile: (id) => ["users", "profile", id],
     list: (params = {}) => withParams(["users", "list"], params),
     detail: (id) => ["users", "detail", id],
+    social: (id) => ["users", "social", id],
   },
 
   churches: {
@@ -46,5 +47,22 @@ export const queryKeys = {
     assignedUsers: (accountId = "self", params = {}) =>
       withParams(["counselor", "assigned-users", accountId], params),
     profile: (id) => ["counselor", "profile", id],
+  },
+
+  matching: {
+    all: ["matching"],
+    active: () => ["matching", "active"],
+    activeForAccount: (accountId) => ["matching", "active", accountId],
+    history: () => ["matching", "history"],
+    historyForAccount: (accountId) => ["matching", "history", accountId],
+    list: (params = {}) => withParams(["matching", "list"], params),
+    detail: (matchId) => ["matching", "detail", matchId],
+    publicProfile: (accountId) => ["matching", "public-profile", accountId],
+    matchProfile: (matchId, accountId) => [
+      "matching",
+      "profile",
+      matchId,
+      accountId,
+    ],
   },
 };

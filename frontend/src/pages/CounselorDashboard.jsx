@@ -1,6 +1,14 @@
 import React, { useState } from "react";
 import { DashboardLayout } from "../features/dashboard/components/DashboardLayout";
-import { Card, StatCard, Table, Button, Modal, Toast } from "../components";
+import {
+  Card,
+  StatCard,
+  Table,
+  Button,
+  Modal,
+  Toast,
+  ActionMenu,
+} from "../components";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import {
@@ -15,6 +23,10 @@ import {
   useCounselorDashboardQuery,
   useVerifyCounselorUserMutation,
 } from "../api/queries/counselor";
+import {
+  useCreateManualMatchMutation,
+  useMatchesQuery,
+} from "../api/queries/matching";
 
 const CounselorDashboard = () => {
   const { user } = useAuth();
@@ -25,9 +37,14 @@ const CounselorDashboard = () => {
   const [toast, setToast] = useState(null);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
+  const [showCreateMatch, setShowCreateMatch] = useState(false);
   const [verifyForm, setVerifyForm] = useState({
     status: "verified",
     notes: "",
+  });
+  const [matchForm, setMatchForm] = useState({
+    maleAccountId: "",
+    femaleAccountId: "",
   });
 
   const isHigherRoleViewer =
@@ -44,22 +61,41 @@ const CounselorDashboard = () => {
     viewedCounselorAccountId,
     {},
     {
-      enabled: activeTab === "users",
+      enabled: activeTab === "users" || showCreateMatch,
       staleTime: 1000 * 60 * 2,
       onError: () =>
         setToast({ type: "error", message: "Failed to fetch assigned users" }),
     },
   );
 
+  const matchOwnerAccountId = viewedCounselorAccountId || user?.id;
+  const matchesQuery = useMatchesQuery(
+    { createdBy: matchOwnerAccountId, limit: 10 },
+    {
+      enabled: activeTab === "matches" && Boolean(matchOwnerAccountId),
+      staleTime: 1000 * 60 * 2,
+      onError: () =>
+        setToast({ type: "error", message: "Failed to fetch matches" }),
+    },
+  );
+
   const verifyUserMutation = useVerifyCounselorUserMutation();
+  const createMatchMutation = useCreateManualMatchMutation();
 
   const dashboard = dashboardQuery.data?.success ? dashboardQuery.data.data : null;
   const assignedUsers = assignedUsersQuery.data?.success
     ? assignedUsersQuery.data.data.users || []
     : [];
+  const matches = matchesQuery.data?.success
+    ? matchesQuery.data.data.matches || []
+    : [];
+  const matchesPagination = matchesQuery.data?.success
+    ? matchesQuery.data.pagination
+    : null;
 
   const overviewLoading = dashboardQuery.isLoading || dashboardQuery.isFetching;
   const usersLoading = assignedUsersQuery.isLoading || assignedUsersQuery.isFetching;
+  const matchesLoading = matchesQuery.isLoading || matchesQuery.isFetching;
   const mutationLoading = verifyUserMutation.isPending;
 
   const handleVerifyUser = async (e) => {
@@ -91,11 +127,32 @@ const CounselorDashboard = () => {
     }
   };
 
+  const handleCreateMatch = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await createMatchMutation.mutateAsync({
+        maleAccountId: matchForm.maleAccountId,
+        femaleAccountId: matchForm.femaleAccountId,
+      });
+      if (response.success) {
+        setToast({ type: "success", message: "Match created successfully!" });
+        setMatchForm({ maleAccountId: "", femaleAccountId: "" });
+        setShowCreateMatch(false);
+      }
+    } catch (error) {
+      setToast({
+        type: "error",
+        message: error?.response?.data?.message || "Failed to create match",
+      });
+    }
+  };
+
   const sidebar = (
     <nav className="space-y-2">
       {[
         { id: "dashboard", label: "Dashboard" },
         { id: "users", label: "Assigned Users" },
+        { id: "matches", label: "Matches" },
       ].map((item) => (
         <button
           key={item.id}
@@ -133,6 +190,29 @@ const CounselorDashboard = () => {
     },
   ];
 
+  const matchColumns = [
+    {
+      key: "id",
+      label: "Match ID",
+      render: (id) => id?.substring(0, 8),
+    },
+    { key: "status", label: "Status" },
+    {
+      key: "createdAt",
+      label: "Created",
+      render: (value) =>
+        value ? new Date(value).toLocaleDateString() : "N/A",
+    },
+    {
+      key: "participants",
+      label: "Participants",
+      render: (participants = []) =>
+        participants
+          .map((p) => `${p.firstName} ${p.lastName}`)
+          .join(" & "),
+    },
+  ];
+
   return (
     <DashboardLayout sidebar={sidebar}>
       {activeTab === "dashboard" && (
@@ -143,7 +223,7 @@ const CounselorDashboard = () => {
               : "Counselor Dashboard"}
           </h1>
 
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-6">
             <StatCard
               label="Total Assigned"
               value={dashboard?.stats?.totalAssigned || 0}
@@ -174,6 +254,12 @@ const CounselorDashboard = () => {
               icon={<XCircle className="w-8 h-8" />}
               color="red"
             />
+            <StatCard
+              label="Total Matches"
+              value={dashboard?.stats?.totalMatches || 0}
+              icon={<Users className="w-8 h-8" />}
+              color="blue"
+            />
           </div>
 
           <Card title="Recent Assigned Users" subtitle="Users assigned to you">
@@ -196,38 +282,59 @@ const CounselorDashboard = () => {
               data={assignedUsers}
               loading={usersLoading}
               actions={(row) => (
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => navigate(`/dashboard/user/${row.accountId}`)}
-                  >
-                    View Dashboard
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="success"
-                    onClick={() => {
-                      setSelectedUser(row);
-                      setVerifyForm({ status: "verified", notes: "" });
-                      setShowVerifyModal(true);
-                    }}
-                  >
-                    Verify
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    onClick={() => {
-                      setSelectedUser(row);
-                      setVerifyForm({ status: "rejected", notes: "" });
-                      setShowVerifyModal(true);
-                    }}
-                  >
-                    Reject
-                  </Button>
-                </div>
+                <ActionMenu
+                  items={[
+                    {
+                      label: "View Details",
+                      onClick: () =>
+                        navigate(`/dashboard/user/${row.accountId}`),
+                    },
+                    {
+                      label: "Verify",
+                      onClick: () => {
+                        setSelectedUser(row);
+                        setVerifyForm({ status: "verified", notes: "" });
+                        setShowVerifyModal(true);
+                      },
+                    },
+                    {
+                      label: "Reject",
+                      variant: "danger",
+                      onClick: () => {
+                        setSelectedUser(row);
+                        setVerifyForm({ status: "rejected", notes: "" });
+                        setShowVerifyModal(true);
+                      },
+                    },
+                  ]}
+                />
               )}
+            />
+          </Card>
+        </div>
+      )}
+
+      {activeTab === "matches" && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h1 className="text-3xl font-bold text-gray-900">Matches</h1>
+            <Button onClick={() => setShowCreateMatch(true)}>
+              Create Match
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <StatCard
+              label="Total Matches"
+              value={matchesPagination?.total || 0}
+              icon={<Users className="w-8 h-8" />}
+              color="blue"
+            />
+          </div>
+          <Card title="Recent Matches" subtitle="Matches created by counselor">
+            <Table
+              columns={matchColumns}
+              data={matches}
+              loading={matchesLoading}
             />
           </Card>
         </div>
@@ -295,6 +402,66 @@ const CounselorDashboard = () => {
             />
           </form>
         )}
+      </Modal>
+
+      <Modal
+        isOpen={showCreateMatch}
+        onClose={() => setShowCreateMatch(false)}
+        title="Create Match"
+        size="md"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setShowCreateMatch(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateMatch}
+              disabled={
+                createMatchMutation.isPending ||
+                !matchForm.maleAccountId ||
+                !matchForm.femaleAccountId
+              }
+            >
+              Create Match
+            </Button>
+          </>
+        }
+      >
+        <form className="space-y-4">
+          <select
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            value={matchForm.maleAccountId}
+            onChange={(e) =>
+              setMatchForm({ ...matchForm, maleAccountId: e.target.value })
+            }
+            required
+          >
+            <option value="">Select Male User</option>
+            {assignedUsers.map((u) => (
+              <option key={u.accountId} value={u.accountId}>
+                {u.firstName} {u.lastName} ({u.email})
+              </option>
+            ))}
+          </select>
+          <select
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            value={matchForm.femaleAccountId}
+            onChange={(e) =>
+              setMatchForm({ ...matchForm, femaleAccountId: e.target.value })
+            }
+            required
+          >
+            <option value="">Select Female User</option>
+            {assignedUsers.map((u) => (
+              <option key={u.accountId} value={u.accountId}>
+                {u.firstName} {u.lastName} ({u.email})
+              </option>
+            ))}
+          </select>
+        </form>
       </Modal>
 
       {toast && (

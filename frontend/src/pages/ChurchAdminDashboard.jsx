@@ -1,6 +1,14 @@
 import React, { useState } from "react";
 import { DashboardLayout } from "../features/dashboard/components/DashboardLayout";
-import { Card, StatCard, Table, Button, Modal, Toast } from "../components";
+import {
+  Card,
+  StatCard,
+  Table,
+  Button,
+  Modal,
+  Toast,
+  ActionMenu,
+} from "../components";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import CreateCounsellorModal from "../features/dashboard/components/CreateCounsellorModal";
@@ -18,6 +26,10 @@ import {
   useChurchAdminDashboardQuery,
   useChurchAdminMembersQuery,
 } from "../api/queries/churchAdmin";
+import {
+  useCreateManualMatchMutation,
+  useMatchesQuery,
+} from "../api/queries/matching";
 
 const ChurchAdminDashboard = () => {
   const { user } = useAuth();
@@ -27,6 +39,7 @@ const ChurchAdminDashboard = () => {
   const [toast, setToast] = useState(null);
   const [showCreateCounselor, setShowCreateCounselor] = useState(false);
   const [showAssignUser, setShowAssignUser] = useState(false);
+  const [showCreateMatch, setShowCreateMatch] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") || "overview";
 
@@ -36,6 +49,11 @@ const ChurchAdminDashboard = () => {
   const [assignForm, setAssignForm] = useState({
     userId: "",
     counselorId: "",
+  });
+
+  const [matchForm, setMatchForm] = useState({
+    maleAccountId: "",
+    femaleAccountId: "",
   });
 
   const dashboardQuery = useChurchAdminDashboardQuery(
@@ -54,7 +72,7 @@ const ChurchAdminDashboard = () => {
     churchId,
     {},
     {
-      enabled: Boolean(churchId) && activeTab === "members",
+      enabled: Boolean(churchId) && (activeTab === "members" || showCreateMatch),
       onError: () =>
         setToast({ type: "error", message: "Failed to fetch members" }),
     },
@@ -71,7 +89,17 @@ const ChurchAdminDashboard = () => {
     },
   );
 
+  const matchesQuery = useMatchesQuery(
+    { churchId, limit: 10 },
+    {
+      enabled: Boolean(churchId) && activeTab === "matches",
+      onError: () =>
+        setToast({ type: "error", message: "Failed to fetch matches" }),
+    },
+  );
+
   const assignCounselorMutation = useAssignCounselorMutation();
+  const createMatchMutation = useCreateManualMatchMutation();
 
   const members = membersQuery.data?.success
     ? membersQuery.data.data.members || []
@@ -79,11 +107,18 @@ const ChurchAdminDashboard = () => {
   const counselors = counselorsQuery.data?.success
     ? counselorsQuery.data.data.counselors || []
     : [];
+  const matches = matchesQuery.data?.success
+    ? matchesQuery.data.data.matches || []
+    : [];
+  const matchesPagination = matchesQuery.data?.success
+    ? matchesQuery.data.pagination
+    : null;
 
   const loading =
     dashboardQuery.isLoading ||
     membersQuery.isLoading ||
     counselorsQuery.isLoading ||
+    matchesQuery.isLoading ||
     assignCounselorMutation.isPending;
 
   const handleAssignUser = async (e) => {
@@ -104,12 +139,33 @@ const ChurchAdminDashboard = () => {
     }
   };
 
+  const handleCreateMatch = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await createMatchMutation.mutateAsync({
+        maleAccountId: matchForm.maleAccountId,
+        femaleAccountId: matchForm.femaleAccountId,
+      });
+      if (response.success) {
+        setToast({ type: "success", message: "Match created successfully!" });
+        setMatchForm({ maleAccountId: "", femaleAccountId: "" });
+        setShowCreateMatch(false);
+      }
+    } catch (error) {
+      setToast({
+        type: "error",
+        message: error?.response?.data?.message || "Failed to create match",
+      });
+    }
+  };
+
   const sidebar = (
     <nav className="space-y-2">
       {[
         { id: "overview", label: "Dashboard" },
         { id: "members", label: "Members" },
         { id: "counselors", label: "Counselors" },
+        { id: "matches", label: "Matches" },
       ].map((item) => (
         <button
           key={item.id}
@@ -172,6 +228,29 @@ const ChurchAdminDashboard = () => {
     { key: "bio", label: "Bio" },
   ];
 
+  const matchColumns = [
+    {
+      key: "id",
+      label: "Match ID",
+      render: (id) => id?.substring(0, 8),
+    },
+    { key: "status", label: "Status" },
+    {
+      key: "createdAt",
+      label: "Created",
+      render: (value) =>
+        value ? new Date(value).toLocaleDateString() : "N/A",
+    },
+    {
+      key: "participants",
+      label: "Participants",
+      render: (participants = []) =>
+        participants
+          .map((p) => `${p.firstName} ${p.lastName}`)
+          .join(" & "),
+    },
+  ];
+
 
   return (
     <DashboardLayout sidebar={sidebar}>
@@ -213,7 +292,7 @@ const ChurchAdminDashboard = () => {
             </div>
           </Card>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-6">
             <StatCard
               label="Total Members"
               value={dashboard.stats?.totalMembers || 0}
@@ -250,6 +329,12 @@ const ChurchAdminDashboard = () => {
               icon={<UserCheck className="w-8 h-8" />}
               color="blue"
             />
+            <StatCard
+              label="Total Matches"
+              value={dashboard.stats?.totalMatches || 0}
+              icon={<Users className="w-8 h-8" />}
+              color="blue"
+            />
           </div>
 
           <Card title="Recent Members" subtitle="Latest members joined">
@@ -278,26 +363,23 @@ const ChurchAdminDashboard = () => {
               data={members}
               loading={loading}
               actions={(row) => (
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => navigate(`/dashboard/user/${row.accountId}`)}
-                  >
-                    View Dashboard
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setAssignForm({ ...assignForm, userId: row.accountId });
-                      setShowAssignUser(true);
-                    }}
-                    disabled={Boolean(row.assignedCounselor)}
-                  >
-                    {row.assignedCounselor ? "Assigned" : "Assign"}
-                  </Button>
-                </div>
+                <ActionMenu
+                  items={[
+                    {
+                      label: "View Details",
+                      onClick: () =>
+                        navigate(`/dashboard/user/${row.accountId}`),
+                    },
+                    {
+                      label: row.assignedCounselor ? "Assigned" : "Assign",
+                      onClick: () => {
+                        setAssignForm({ ...assignForm, userId: row.accountId });
+                        setShowAssignUser(true);
+                      },
+                      disabled: Boolean(row.assignedCounselor),
+                    },
+                  ]}
+                />
               )}
             />
           </Card>
@@ -319,16 +401,42 @@ const ChurchAdminDashboard = () => {
               data={counselors}
               loading={loading}
               actions={(row) => (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    navigate(`/dashboard/counselor/${row.accountId}`)
-                  }
-                >
-                  View Dashboard
-                </Button>
+                <ActionMenu
+                  items={[
+                    {
+                      label: "View Details",
+                      onClick: () =>
+                        navigate(`/dashboard/counselor/${row.accountId}`),
+                    },
+                  ]}
+                />
               )}
+            />
+          </Card>
+        </div>
+      )}
+
+      {activeTab === "matches" && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h1 className="text-3xl font-bold text-gray-900">Church Matches</h1>
+            <Button onClick={() => setShowCreateMatch(true)}>
+              Create Match
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <StatCard
+              label="Total Matches"
+              value={matchesPagination?.total || 0}
+              icon={<Users className="w-8 h-8" />}
+              color="blue"
+            />
+          </div>
+          <Card title="Recent Matches" subtitle="Latest match activity">
+            <Table
+              columns={matchColumns}
+              data={matches}
+              loading={loading}
             />
           </Card>
         </div>
@@ -389,6 +497,66 @@ const ChurchAdminDashboard = () => {
             {counselors.map((counselor) => (
               <option key={counselor.accountId} value={counselor.accountId}>
                 {counselor.firstName} {counselor.lastName}
+              </option>
+            ))}
+          </select>
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={showCreateMatch}
+        onClose={() => setShowCreateMatch(false)}
+        title="Create Match"
+        size="md"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setShowCreateMatch(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateMatch}
+              disabled={
+                createMatchMutation.isPending ||
+                !matchForm.maleAccountId ||
+                !matchForm.femaleAccountId
+              }
+            >
+              Create Match
+            </Button>
+          </>
+        }
+      >
+        <form className="space-y-4">
+          <select
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            value={matchForm.maleAccountId}
+            onChange={(e) =>
+              setMatchForm({ ...matchForm, maleAccountId: e.target.value })
+            }
+            required
+          >
+            <option value="">Select Male Member</option>
+            {members.map((m) => (
+              <option key={m.accountId} value={m.accountId}>
+                {m.firstName} {m.lastName} ({m.email})
+              </option>
+            ))}
+          </select>
+          <select
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            value={matchForm.femaleAccountId}
+            onChange={(e) =>
+              setMatchForm({ ...matchForm, femaleAccountId: e.target.value })
+            }
+            required
+          >
+            <option value="">Select Female Member</option>
+            {members.map((m) => (
+              <option key={m.accountId} value={m.accountId}>
+                {m.firstName} {m.lastName} ({m.email})
               </option>
             ))}
           </select>
