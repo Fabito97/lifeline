@@ -2,6 +2,7 @@
 // SuperAdmin dashboard aggregated stats
 
 import { prisma } from "../config/db";
+import { calculateAge } from "../utils/ageUtils";
 
 /**
  * Get SuperAdmin dashboard statistics
@@ -74,7 +75,12 @@ export const getSuperAdminDashboard = async () => {
     prisma.user.findMany({
       take: 5,
       orderBy: { account: {createdAt: "desc"} },
-      include: {
+      select: {
+        accountId: true,
+        gender: true,
+        dateOfBirth: true,
+        isVerified: true,
+        verificationStatus: true,
         account: {
           select: {
             firstName: true,
@@ -114,7 +120,10 @@ export const getSuperAdminDashboard = async () => {
     },
     recentActivity: {
       churches: recentChurches,
-      users: recentUsers,
+      users: recentUsers.map((user) => ({
+        ...user,
+        age: calculateAge(user.dateOfBirth),
+      })),
     },
   };
 };

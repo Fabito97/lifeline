@@ -1,7 +1,7 @@
 // services/userService.ts
 // User business logic
 
-import { MatchPreferenceType } from "@prisma/client";
+import { MatchPreferenceType, VerificationStatus } from "@prisma/client";
 import { prisma } from "../config/db";
 import { findRandomCounselorId, getMatchingEligibility } from "./matchingService";
 import { calculateAge } from "../utils/ageUtils";
@@ -99,10 +99,10 @@ export const getUsers = async (filters?: {
       phone: u.account.phone,
       accountStatus: u.account.status,
       createdAt: u.account.createdAt,
+      verificationStatus: u.verificationStatus,
       isVerified: u.isVerified,
-      isActive: u.account.status === "active",      
-      dateOfBirth: u.dateOfBirth,
       gender: u.gender,
+      age: calculateAge(u.dateOfBirth),
       profilePictureUrl: u.profilePictureUrl,
       church: u.church,
       assignedCounselor: u.assignedCounselor

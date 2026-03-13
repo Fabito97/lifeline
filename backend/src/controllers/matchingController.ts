@@ -13,9 +13,11 @@ import {
 import { errorResponse, successResponse } from "../utils/responseHandler";
 
 export const create = async (req: Request, res: Response) => {
+  console.log("[POST /api/matches] Starting - CreatedBy:", req.account?.id);
   try {
     const { accountIdA, accountIdB } = req.body;
     if (!accountIdA || !accountIdB) {
+      console.error("[POST /api/matches] Failed: accountIdA/accountIdB required");
       return res
         .status(400)
         .json(errorResponse("accountIdA and accountIdB are required"));
@@ -26,8 +28,10 @@ export const create = async (req: Request, res: Response) => {
       String(accountIdA),
       String(accountIdB),
     );
+    console.log("[POST /api/matches] Success - Match:", match.id);
     res.status(201).json(successResponse("Match created successfully", { match }));
   } catch (error: any) {
+    console.error("[POST /api/matches] Failed:", error.message);
     res
       .status(400)
       .json(errorResponse(error.message || "Server error creating match"));
@@ -35,10 +39,13 @@ export const create = async (req: Request, res: Response) => {
 };
 
 export const getActive = async (req: Request, res: Response) => {
+  console.log("[GET /api/matches/active] Starting - Account:", req.account?.id);
   try {
     const match = await getActiveMatchForUser(req.account.id);
+    console.log("[GET /api/matches/active] Success");
     res.json(successResponse("Active match fetched", { match }));
   } catch (error: any) {
+    console.error("[GET /api/matches/active] Failed:", error.message);
     res
       .status(400)
       .json(errorResponse(error.message || "Server error fetching active match"));
@@ -46,10 +53,16 @@ export const getActive = async (req: Request, res: Response) => {
 };
 
 export const getActiveForAccount = async (req: Request, res: Response) => {
+  console.log(
+    "[GET /api/matches/active/:accountId] Starting - Target:",
+    req.params.accountId,
+  );
   try {
     const match = await getActiveMatchForUser(String(req.params.accountId));
+    console.log("[GET /api/matches/active/:accountId] Success");
     res.json(successResponse("Active match fetched", { match }));
   } catch (error: any) {
+    console.error("[GET /api/matches/active/:accountId] Failed:", error.message);
     res
       .status(400)
       .json(errorResponse(error.message || "Server error fetching active match"));
@@ -57,10 +70,13 @@ export const getActiveForAccount = async (req: Request, res: Response) => {
 };
 
 export const getHistory = async (req: Request, res: Response) => {
+  console.log("[GET /api/matches/history] Starting - Account:", req.account?.id);
   try {
     const matches = await getMatchHistoryForUser(req.account.id);
+    console.log("[GET /api/matches/history] Success");
     res.json(successResponse("Match history fetched", { matches }));
   } catch (error: any) {
+    console.error("[GET /api/matches/history] Failed:", error.message);
     res
       .status(400)
       .json(errorResponse(error.message || "Server error fetching match history"));
@@ -68,10 +84,16 @@ export const getHistory = async (req: Request, res: Response) => {
 };
 
 export const getHistoryForAccount = async (req: Request, res: Response) => {
+  console.log(
+    "[GET /api/matches/history/:accountId] Starting - Target:",
+    req.params.accountId,
+  );
   try {
     const matches = await getMatchHistoryForUser(String(req.params.accountId));
+    console.log("[GET /api/matches/history/:accountId] Success");
     res.json(successResponse("Match history fetched", { matches }));
   } catch (error: any) {
+    console.error("[GET /api/matches/history/:accountId] Failed:", error.message);
     res
       .status(400)
       .json(errorResponse(error.message || "Server error fetching match history"));
@@ -79,20 +101,34 @@ export const getHistoryForAccount = async (req: Request, res: Response) => {
 };
 
 export const decide = async (req: Request, res: Response) => {
+  console.log(
+    "[POST /api/matches/:matchId/decision] Starting - Match:",
+    req.params.matchId,
+    "Account:",
+    req.account?.id,
+  );
   try {
     const matchId = String(req.params.matchId);
     const decision = String(req.body?.decision) as MatchDecision;
     const feedback = req.body?.feedback ? String(req.body.feedback) : undefined;
 
     if (!["ACCEPTED", "DECLINED"].includes(decision)) {
+      console.error(
+        "[POST /api/matches/:matchId/decision] Failed: Invalid decision",
+      );
       return res
         .status(400)
         .json(errorResponse("decision must be ACCEPTED or DECLINED"));
     }
 
     const match = await decideMatch(req.account.id, matchId, decision, feedback);
+    console.log("[POST /api/matches/:matchId/decision] Success");
     res.json(successResponse("Decision saved successfully", { match }));
   } catch (error: any) {
+    console.error(
+      "[POST /api/matches/:matchId/decision] Failed:",
+      error.message,
+    );
     res
       .status(400)
       .json(errorResponse(error.message || "Server error saving decision"));
@@ -100,11 +136,20 @@ export const decide = async (req: Request, res: Response) => {
 };
 
 export const getPublicProfile = async (req: Request, res: Response) => {
+  console.log(
+    "[GET /api/matches/public-profile/:accountId] Starting - Target:",
+    req.params.accountId,
+  );
   try {
     const targetAccountId = String(req.params.accountId);
     const profile = await getMatchPublicProfile(req.account.id, targetAccountId);
+    console.log("[GET /api/matches/public-profile/:accountId] Success");
     res.json(successResponse("Public profile fetched", { profile }));
   } catch (error: any) {
+    console.error(
+      "[GET /api/matches/public-profile/:accountId] Failed:",
+      error.message,
+    );
     res
       .status(400)
       .json(errorResponse(error.message || "Server error fetching public profile"));
@@ -112,6 +157,12 @@ export const getPublicProfile = async (req: Request, res: Response) => {
 };
 
 export const getMatchProfile = async (req: Request, res: Response) => {
+  console.log(
+    "[GET /api/matches/:matchId/profile/:accountId] Starting - Match:",
+    req.params.matchId,
+    "Target:",
+    req.params.accountId,
+  );
   try {
     const matchId = String(req.params.matchId);
     const targetAccountId = String(req.params.accountId);
@@ -121,8 +172,13 @@ export const getMatchProfile = async (req: Request, res: Response) => {
       matchId,
       targetAccountId,
     );
+    console.log("[GET /api/matches/:matchId/profile/:accountId] Success");
     res.json(successResponse("Public profile fetched", { profile }));
   } catch (error: any) {
+    console.error(
+      "[GET /api/matches/:matchId/profile/:accountId] Failed:",
+      error.message,
+    );
     res
       .status(400)
       .json(errorResponse(error.message || "Server error fetching public profile"));
@@ -130,11 +186,17 @@ export const getMatchProfile = async (req: Request, res: Response) => {
 };
 
 export const getMatchDetails = async (req: Request, res: Response) => {
+  console.log(
+    "[GET /api/matches/:matchId] Starting - Match:",
+    req.params.matchId,
+  );
   try {
     const matchId = String(req.params.matchId);
     const match = await getMatchById(req.account.id, req.account.role, matchId);
+    console.log("[GET /api/matches/:matchId] Success");
     res.json(successResponse("Match fetched", { match }));
   } catch (error: any) {
+    console.error("[GET /api/matches/:matchId] Failed:", error.message);
     res
       .status(400)
       .json(errorResponse(error.message || "Server error fetching match"));
@@ -142,6 +204,7 @@ export const getMatchDetails = async (req: Request, res: Response) => {
 };
 
 export const listAll = async (req: Request, res: Response) => {
+  console.log("[GET /api/matches] Starting - Account:", req.account?.id);
   try {
     const { status, createdBy, counselorId, churchId, dateFrom, dateTo, page, limit } =
       req.query;
@@ -160,7 +223,9 @@ export const listAll = async (req: Request, res: Response) => {
     res.json(
       successResponse("Matches fetched", { matches: result.matches }, result.pagination),
     );
+    console.log("[GET /api/matches] Success");
   } catch (error: any) {
+    console.error("[GET /api/matches] Failed:", error.message);
     res
       .status(400)
       .json(errorResponse(error.message || "Server error fetching matches"));
