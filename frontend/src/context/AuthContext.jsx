@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { authService } from "../api/services";
 import { queryClient } from "../api/queryClient";
 import { queryKeys } from "../api/queryKeys";
 import { AuthContext } from "./auth-context";
 
 export const AuthProvider = ({ children }) => {
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -60,15 +62,19 @@ export const AuthProvider = ({ children }) => {
         throw new Error(response.message || "Login failed");
       }
     } catch (err) {
-      if (err.response?.errors?.requiresVerification) {
-        const email = err.response.errors?.email
-        sessionStorage.setItem("signupEmail", email);
-
-        navigate("/verify-email"); // or show a modal
+      const requiresVerification =
+        err?.response?.data?.errors?.requiresVerification;
+      if (requiresVerification) {
+        const verificationEmail =
+          err?.response?.data?.errors?.email || email;
+        if (verificationEmail) {
+          sessionStorage.setItem("signupEmail", verificationEmail);
+        }
+        navigate("/verify-email");
       }
 
-      const message = err.response?.data?.message || err.message;
-      setError("Login failed");
+      const message = err?.response?.data?.message || err?.message;
+      setError(message || "Login failed");
       console.error("Login error:", message);
       throw err;
     }
@@ -79,23 +85,26 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await authService.signup(data);
 
-      if (response.success) {
+      if (response.success && response.data?.user) {
         // localStorage.setItem("token", response.data.token);
         setUser(response.data.user);
         queryClient.setQueryData(queryKeys.auth.me(), {
           success: true,
           data: { user: response.data.user },
         });
+        
         const email = response.data.user.email;
-        sessionStorage.setItem("signupEmail", email);
+        if (email) {
+          sessionStorage.setItem("signupEmail", email);
+        }
 
         return response.data;
       } else {
         throw new Error(response.message || "Signup failed");
       }
     } catch (err) {
-      const message = err.response?.data?.message || err.message;
-      setError(message);
+      const message = err?.response?.data?.message || err?.message;
+      setError(message || "Signup failed");
       throw err;
     }
   }, []);
