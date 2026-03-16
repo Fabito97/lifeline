@@ -20,6 +20,10 @@ export const ProtectedRoute = ({ children, allowedRoles = null }) => {
     return <Navigate to="/login" replace />;
   }
 
+  if (user?.status === "pending") {
+    return <Navigate to="/verify-email" replace />;
+  }
+
   if (allowedRoles && !allowedRoles.includes(user?.role)) {
     return <Navigate to="/" replace />;
   }

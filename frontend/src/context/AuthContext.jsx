@@ -26,7 +26,7 @@ export const AuthProvider = ({ children }) => {
           } else {
             localStorage.removeItem("token");
             setUser(null);
-            
+
             queryClient.removeQueries({ queryKey: queryKeys.auth.me() });
           }
         } catch {
@@ -60,8 +60,16 @@ export const AuthProvider = ({ children }) => {
         throw new Error(response.message || "Login failed");
       }
     } catch (err) {
+      if (err.response?.errors?.requiresVerification) {
+        const email = err.response.errors?.email
+        sessionStorage.setItem("signupEmail", email);
+
+        navigate("/verify-email"); // or show a modal
+      }
+
       const message = err.response?.data?.message || err.message;
-      setError(message);
+      setError("Login failed");
+      console.error("Login error:", message);
       throw err;
     }
   }, []);
@@ -78,6 +86,8 @@ export const AuthProvider = ({ children }) => {
           success: true,
           data: { user: response.data.user },
         });
+        const email = response.data.user.email;
+        sessionStorage.setItem("signupEmail", email);
 
         return response.data;
       } else {

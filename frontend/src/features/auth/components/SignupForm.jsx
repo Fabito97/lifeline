@@ -20,6 +20,7 @@ const SignupForm = () => {
     lastName: "",
     email: "",
     phone: "",
+    dateOfBirth: "",
     password: "",
     gender: "",
     originCountry: "",
@@ -36,6 +37,18 @@ const SignupForm = () => {
     matchPreference: "",
   });
   const [errors, setErrors] = useState({});
+
+  const isAtLeastAge = (dateString, minAge) => {
+    if (!dateString) return false;
+    const dob = new Date(dateString);
+    if (Number.isNaN(dob.getTime())) return false;
+    const today = new Date();
+    let age = today.getFullYear() - dob.getFullYear();
+    const monthDiff = today.getMonth() - dob.getMonth();
+    const dayDiff = today.getDate() - dob.getDate();
+    if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) age -= 1;
+    return age >= minAge;
+  };
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -69,6 +82,9 @@ const SignupForm = () => {
       else if (!/\S+@\S+\.\S+/.test(formData.email))
         newErrors.email = "Invalid email";
       if (!formData.phone) newErrors.phone = "Required";
+      if (!formData.dateOfBirth) newErrors.dateOfBirth = "Required";
+      else if (!isAtLeastAge(formData.dateOfBirth, 18))
+        newErrors.dateOfBirth = "You must be at least 18";
       if (!formData.password) newErrors.password = "Required";
       else if (formData.password.length < 8)
         newErrors.password = "Min 8 characters";
@@ -121,7 +137,7 @@ const SignupForm = () => {
       // Navigate based on user role
       const user = data.user;
       if (user.role === "User") {
-        navigate("/email-confirmation");
+        navigate("/verify-email");
       } else {
         // For other roles, navigate to their dashboard
         switch (user.role) {

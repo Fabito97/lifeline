@@ -47,6 +47,14 @@ const BasicInfoStep = ({ data, onChange, errors = {} }) => {
                     error={errors.phone}
                 />
                 <Input
+                    label="Date of Birth"
+                    type="date"
+                    name="dateOfBirth"
+                    value={data.dateOfBirth}
+                    onChange={onChange}
+                    error={errors.dateOfBirth}
+                />
+                <Input
                     label="Password"
                     type="password"
                     name="password"

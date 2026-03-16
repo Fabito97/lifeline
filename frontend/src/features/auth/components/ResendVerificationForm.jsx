@@ -1,16 +1,19 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { authService } from "../../../api/services";
-import {Toast} from "../../../components/Toast";
+import { Toast } from "../../../components/Toast";
 
 const ResendVerificationForm = ({ initialEmail = "" }) => {
+  const navigate = useNavigate();
   const [email, setEmail] = useState(() => {
     // Try to get email from sessionStorage first, then use initialEmail prop
     const stored = sessionStorage.getItem("signupEmail");
     return stored || initialEmail || "";
   });
   const [loading, setLoading] = useState(false);
-  const [sent, setSent] = useState(false);
   const [toast, setToast] = useState(null);
+  const isEmailValid = /\S+@\S+\.\S+/.test(email);
+  const needsEmailInput = !isEmailValid;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -29,11 +32,8 @@ const ResendVerificationForm = ({ initialEmail = "" }) => {
       const result = await authService.requestVerification(email);
 
       if (result.success) {
-        setSent(true);
-        setToast({
-          type: "success",
-          message: "Verification link sent! Check your inbox.",
-        });
+        sessionStorage.setItem("signupEmail", email);
+        navigate("/verify-email", { replace: true });
       } else {
         setToast({
           type: "error",
@@ -52,51 +52,37 @@ const ResendVerificationForm = ({ initialEmail = "" }) => {
     }
   };
 
-  if (sent) {
-    return (
-      <div className="p-6 bg-green-50 rounded-2xl border border-green-100">
-        <div className="flex items-center gap-4 text-green-700 mb-3">
-          <div className="text-2xl">✓</div>
-          <div>
-            <h3 className="font-semibold">Email Sent Successfully!</h3>
-            <p className="text-sm text-green-600">Check your inbox for the verification link</p>
-          </div>
-        </div>
-        <button
-          onClick={() => {
-            setSent(false);
-            setEmail("");
-          }}
-          className="text-sm text-green-600 font-semibold hover:text-green-700 transition-colors"
-        >
-          Send to another email
-        </button>
-      </div>
-    );
-  }
-
   return (
     <>
       <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100">
         <div className="flex items-center gap-4 text-slate-600 mb-4 text-sm font-medium">
           <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
-            📧
+            @
           </div>
           Didn't receive the email?
         </div>
-        <p className="text-slate-500 text-sm mb-4">
-          Enter your email and we'll resend the verification link.
-        </p>
+        {needsEmailInput ? (
+          <p className="text-slate-500 text-sm mb-4">
+            Enter your email and we'll resend the verification link.
+          </p>
+        ) : (
+          <p className="text-slate-500 text-sm mb-4">
+            We'll resend the verification link to{" "}
+            <span className="font-semibold">{email}</span>.
+          </p>
+        )}
         <form onSubmit={handleSubmit} className="space-y-3">
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="your-email@example.com"
-            disabled={loading}
-            className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100"
-            required
-          />
+          {needsEmailInput &&
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="your-email@example.com"
+              disabled={loading}
+              className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100"
+              required
+            />
+          }
           <button
             type="submit"
             disabled={loading}
