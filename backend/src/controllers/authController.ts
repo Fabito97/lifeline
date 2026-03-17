@@ -109,15 +109,24 @@ export const signup = async (req: Request, res: Response) => {
       `[POST /api/auth/signup][${requestId}] Account created in ${Date.now() - startedAt}ms`,
     );
 
-    // Send verification email
+    // Send verification email (non-blocking for signup success)
+    let emailSent = true;
     const emailStart = Date.now();
     console.log(
       `[POST /api/auth/signup][${requestId}] Sending verification email`,
     );
-    await requestEmailVerification(newAccount);
-    console.log(
-      `[POST /api/auth/signup][${requestId}] Verification email sent in ${Date.now() - emailStart}ms`,
-    );
+    try {
+      await requestEmailVerification(newAccount);
+      console.log(
+        `[POST /api/auth/signup][${requestId}] Verification email sent in ${Date.now() - emailStart}ms`,
+      );
+    } catch (emailError: any) {
+      emailSent = false;
+      console.error(
+        `[POST /api/auth/signup][${requestId}] Verification email failed after ${Date.now() - emailStart}ms:`,
+        emailError?.message || emailError,
+      );
+    }
 
     // Generate token (user can login but features limited until verified)
     // const token = generateToken(newAccount);
@@ -125,14 +134,16 @@ export const signup = async (req: Request, res: Response) => {
       `[POST /api/auth/signup][${requestId}] Success - User: ${newAccount.id} in ${Date.now() - startedAt}ms`,
     );
 
+    const message = emailSent
+      ? "User registered successfully. Please check your email to verify your account."
+      : "User registered successfully, but we could not send a verification email. Please request verification.";
+
     res.status(201).json(
-      successResponse(
-        "User registered successfully. Please check your email to verify your account.",
-        {
-          // token,
-          user: newAccount,
-        },
-      ),
+      successResponse(message, {
+        // token,
+        user: newAccount,
+        emailSent,
+      }),
     );
   } catch (error: any) {
     console.error(

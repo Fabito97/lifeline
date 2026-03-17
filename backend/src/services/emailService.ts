@@ -11,7 +11,7 @@ export interface SendEmailOptions {
 const transporter = nodemailer.createTransport({
   host: env.smtp.host,
   port: env.smtp.port,
-  secure: env.smtp.port === 465,
+  secure: env.smtp.secure ?? env.smtp.port === 465,
   auth: {
     user: env.smtp.user,
     pass: env.smtp.pass,
@@ -20,6 +20,24 @@ const transporter = nodemailer.createTransport({
   greetingTimeout: 10000,
   socketTimeout: 10000,
 });
+
+let hasVerifiedTransporter = false;
+
+const verifyTransporter = async () => {
+  if (hasVerifiedTransporter) return;
+  hasVerifiedTransporter = true;
+  try {
+    await transporter.verify();
+    console.log(
+      `[email] SMTP verified host=${env.smtp.host} port=${env.smtp.port} secure=${env.smtp.secure}`,
+    );
+  } catch (error: any) {
+    console.error(
+      `[email] SMTP verify failed host=${env.smtp.host} port=${env.smtp.port} secure=${env.smtp.secure}:`,
+      error?.message || error,
+    );
+  }
+};
 
 export const sendEmail = async ({
   to,
@@ -32,12 +50,13 @@ export const sendEmail = async ({
   }
 
   const startedAt = Date.now();
+  await verifyTransporter();
   console.log(
     `[email] Sending to=${to} subject="${subject}" host=${env.smtp.host} port=${env.smtp.port}`,
   );
   try {
     await transporter.sendMail({
-      from: `Lifeline <${env.smtp.user}>`,
+      from: `Lifeline <${env.smtp.from || env.smtp.user}>`,
       to,
       subject,
       html,

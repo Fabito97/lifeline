@@ -16,6 +16,13 @@ const toInt = (value: string, fallback: number) => {
   return Number.isNaN(parsed) ? fallback : parsed;
 };
 
+const toBool = (value: string | undefined, fallback: boolean) => {
+  if (value == null) return fallback;
+  return ["true", "1", "yes", "y"].includes(String(value).toLowerCase());
+};
+
+const smtpPort = toInt(process.env.SMTP_PORT, 465);
+
 const env = {
   nodeEnv: process.env.NODE_ENV || "development",
   clientUrl: process.env.CLIENT_URL || "http://localhost:5173",
@@ -32,10 +39,13 @@ const env = {
   },
   smtp: {
     host: process.env.SMTP_HOST,
-    port: toInt(process.env.SMTP_PORT, 465),
+    port: smtpPort,
     user: process.env.SMTP_USER,
-    from: process.env.FROM_EMAIL,
+    from:
+      process.env.SMTP_FROM_EMAIL ||
+      process.env.FROM_EMAIL,
     pass: process.env.SMTP_PASS,
+    secure: toBool(process.env.SMTP_SECURE, smtpPort === 465),
   },
   cloudinary: {
     cloudName: process.env.CLOUDINARY_CLOUD_NAME || "",
