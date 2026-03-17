@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import routes from "./routes";
 import env from "./config/env";
+import { errorHandler } from "./middleware/errorHandler";
 
 const app = express();
 const PORT = env.port;
@@ -23,6 +24,9 @@ app.use("/api", routes);
 app.get("/", (_, res) => {
   res.json({ message: "Welcome to Lifeline API - Where Faith meets Logic." });
 });
+
+// Global Error Handler
+app.use(errorHandler);
 
 // Start Server
 app.listen(PORT, () => {
