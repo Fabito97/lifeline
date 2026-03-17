@@ -128,6 +128,7 @@ const SignupForm = () => {
     setIsSubmitting(true);
 
     try {
+      console.log("[Innit] Step 1", formData)
       const data = await signup(formData);
 
       console.log("Signup Successful:", data);

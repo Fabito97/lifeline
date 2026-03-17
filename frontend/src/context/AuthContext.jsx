@@ -83,8 +83,10 @@ export const AuthProvider = ({ children }) => {
   const signup = useCallback(async (data) => {
     setError(null);
     try {
+      console.log("Step 1")
       const response = await authService.signup(data);
-
+      console.log("Step 2", response)
+      
       if (response.success && response.data?.user) {
         // localStorage.setItem("token", response.data.token);
         setUser(response.data.user);

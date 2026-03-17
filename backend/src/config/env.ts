@@ -32,7 +32,7 @@ const env = {
   },
   smtp: {
     host: process.env.SMTP_HOST,
-    port: toInt(process.env.SMTP_PORT, 467),
+    port: toInt(process.env.SMTP_PORT, 465),
     user: process.env.SMTP_USER,
     from: process.env.FROM_EMAIL,
     pass: process.env.SMTP_PASS,

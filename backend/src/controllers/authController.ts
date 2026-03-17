@@ -20,7 +20,14 @@ import { comparePassword, hashPassword } from "../utils/passwordHasher";
  * @access  Public
  */
 export const signup = async (req: Request, res: Response) => {
-  console.log("[POST /api/auth/signup] Starting - Email:", req.body?.email);
+  const requestId = `signup_${Date.now().toString(36)}_${Math.random()
+    .toString(36)
+    .slice(2, 6)}`;
+  const startedAt = Date.now();
+  console.log(
+    `[POST /api/auth/signup][${requestId}] Starting - Email:`,
+    req.body?.email,
+  );
   try {
     const {
       firstName,
@@ -49,7 +56,9 @@ export const signup = async (req: Request, res: Response) => {
     });
 
     if (existingUser) {
-      console.error("[POST /api/auth/signup] Failed: User already exists");
+      console.error(
+        `[POST /api/auth/signup][${requestId}] Failed: User already exists`,
+      );
       return res.status(400).json(errorResponse("User already exists"));
     }
 
@@ -96,12 +105,25 @@ export const signup = async (req: Request, res: Response) => {
       },
     });
 
+    console.log(
+      `[POST /api/auth/signup][${requestId}] Account created in ${Date.now() - startedAt}ms`,
+    );
+
     // Send verification email
+    const emailStart = Date.now();
+    console.log(
+      `[POST /api/auth/signup][${requestId}] Sending verification email`,
+    );
     await requestEmailVerification(newAccount);
+    console.log(
+      `[POST /api/auth/signup][${requestId}] Verification email sent in ${Date.now() - emailStart}ms`,
+    );
 
     // Generate token (user can login but features limited until verified)
     // const token = generateToken(newAccount);
-    console.log("[POST /api/auth/signup] Success - User:", newAccount.id);
+    console.log(
+      `[POST /api/auth/signup][${requestId}] Success - User: ${newAccount.id} in ${Date.now() - startedAt}ms`,
+    );
 
     res.status(201).json(
       successResponse(
@@ -113,7 +135,10 @@ export const signup = async (req: Request, res: Response) => {
       ),
     );
   } catch (error: any) {
-    console.error("[POST /api/auth/signup] Failed:", error.message);
+    console.error(
+      `[POST /api/auth/signup][${requestId}] Failed after ${Date.now() - startedAt}ms:`,
+      error.message,
+    );
     res
       .status(500)
       .json(errorResponse(error.message || "Server error during registration"));
