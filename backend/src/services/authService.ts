@@ -4,9 +4,104 @@
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { prisma } from "../config/db";
-import { sendEmail } from "../services/emailService";
+import { sendEmail, sendTestEmail } from "../services/emailService";
 import env from "../config/env";
-import { Account } from "@prisma/client";
+import { Account, GenderType, MatchPreferenceType } from "@prisma/client";
+
+
+export const createUserAccountWithVerification = async (input: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  hashedPassword: string;
+  gender: string;
+  dateOfBirth?: string;
+  originCountry: string;
+  originState: string;
+  originLga: string;
+  residenceCountry: string;
+  residenceState: string;
+  residenceCity: string;
+  residenceAddress: string;
+  occupation: string;
+  interests: string[];
+  churchId: string;
+  matchPreference: string;
+}) => {
+  const startedAt = Date.now();
+  console.log("[authService] Creating account");
+  const newAccount = await prisma.account.create({
+    data: {
+      firstName: input.firstName,
+      lastName: input.lastName,
+      email: input.email,
+      phone: input.phone,
+      password: input.hashedPassword,
+      role: "User",
+      isEmailVerified: false,
+      user: {
+        create: {
+          gender: input.gender as GenderType,
+          dateOfBirth: input.dateOfBirth
+            ? new Date(input.dateOfBirth)
+            : undefined,
+          originCountry: input.originCountry,
+          originState: input.originState,
+          originLga: input.originLga,
+          residenceCountry: input.residenceCountry,
+          residenceState: input.residenceState,
+          residenceCity: input.residenceCity,
+          residenceAddress: input.residenceAddress,
+          occupation: input.occupation,
+          interests: input.interests,
+          churchId: input.churchId,
+          matchPreference: input.matchPreference as MatchPreferenceType,
+        },
+      },
+    },
+    select: {
+      id: true,
+      email: true,
+      firstName: true,
+      role: true,
+      isEmailVerified: true,
+      status: true,
+      createdAt: true,
+    },
+  });
+  console.log(
+    `[authService] Account created in ${Date.now() - startedAt}ms`,
+  );
+
+  let emailSent = true;
+  let emailPreview: { html: string; verificationUrl: string } | null = null;
+  let emailErrorMessage: string | null = null;
+  const emailStart = Date.now();
+  console.log("[authService] Sending verification email");
+
+  try {
+    const emailResult = await requestEmailVerification(newAccount);
+    emailPreview = emailResult?.emailPreview || null;
+    console.log(
+      `[authService] Verification email sent in ${Date.now() - emailStart}ms`,
+    );
+  } catch (error: any) {
+    emailSent = false;
+    emailErrorMessage = error?.message || String(error);
+    console.error(
+      `[authService] Verification email failed after ${Date.now() - emailStart}ms:`,
+      emailErrorMessage,
+    );
+  }
+
+  return {
+    account: newAccount,
+    emailSent,
+    emailPreview,
+    emailErrorMessage,
+  };
+};
 
 /**
  * Request email verification
@@ -37,22 +132,46 @@ export const requestEmailVerification = async (
   });
 
   // Send verification email
-  const verificationUrl = `${env.clientUrl}/verify-email?token=${token}`;
-
-  await sendEmail({
-    to: account.email,
-    subject: "Verify Your Email - Faith Dating Platform",
-    html: `
+  const verificationUrl = `${env.clientUrl}/email-confirmation?token=${token}`;
+  const emailHtml = `
       <h2>Welcome ${account.firstName}!</h2>
       <p>Please verify your email address by clicking the link below:</p>
       <a href="${verificationUrl}">Verify Email</a>
       <p>This link expires in 24 hours.</p>
       <p>If you didn't create an account, please ignore this email.</p>
-    `,
-  });
+    `;
 
-  return { message: "Verification email sent" };
+  const shouldUseTestEmail = env.mailtrap.useSandbox || env.exposeEmailHtml;
+  let emailMessage: string | null = null;
+
+  if (shouldUseTestEmail) {
+    emailMessage = await sendTestEmail({
+      to: account.email,
+      subject: "Verify Your Email - Lifeline Dating Platform",
+      html: emailHtml,
+    });
+  } else {
+    await sendEmail({
+      to: account.email,
+      subject: "Verify Your Email - Lifeline Dating Platform",
+      html: emailHtml,
+    });
+  }
+
+  const shouldReturnPreview = shouldUseTestEmail;
+
+  return {
+    message: "Verification email sent",
+    verificationUrl,
+    emailPreview: shouldReturnPreview
+      ? {
+          html: emailMessage || emailHtml,
+          verificationUrl,
+        }
+      : null,
+  };
 };
+
 
 /**
  * Verify email with token
@@ -130,22 +249,42 @@ export const requestPasswordReset = async (email: string) => {
 
   // Send reset email
   const resetUrl = `${env.clientUrl}/reset-password?token=${token}`;
-
-  await sendEmail({
-    to: account.email,
-    subject: "Reset Your Password - Faith Dating Platform",
-    html: `
+  const emailHtml = `
       <h2>Password Reset Request</h2>
       <p>Hi ${account.firstName},</p>
       <p>You requested to reset your password. Click the link below:</p>
       <a href="${resetUrl}">${resetUrl}</a>
       <p>This link expires in 15 minutes.</p>
       <p>If you didn't request this, please ignore this email.</p>
-    `,
-  });
+    `;
+
+  const shouldUseTestEmail = env.mailtrap.useSandbox || env.exposeEmailHtml;
+  let emailMessage: string | null = null;
+
+  if (shouldUseTestEmail) {
+    emailMessage = await sendTestEmail({
+      to: account.email,
+      subject: "Reset Your Password - Faith Dating Platform",
+      html: emailHtml,
+    });
+  } else {
+    await sendEmail({
+      to: account.email,
+      subject: "Reset Your Password - Faith Dating Platform",
+      html: emailHtml,
+    });
+  }
+
+  const shouldReturnPreview = shouldUseTestEmail;
 
   return {
     message: "If an account exists, a password reset link has been sent",
+    emailPreview: shouldReturnPreview
+      ? {
+          html: emailMessage || emailHtml,
+          resetUrl,
+        }
+      : null,
   };
 };
 

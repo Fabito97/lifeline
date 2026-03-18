@@ -1,9 +1,15 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import AuthLayout from "../features/auth/components/AuthLayout";
 import ResendVerificationForm from "../features/auth/components/ResendVerificationForm";
 
 const VerifyEmailPage = () => {
+  const [hasPreview, setHasPreview] = useState(false);
+
+  useEffect(() => {
+    setHasPreview(Boolean(sessionStorage.getItem("emailPreviewHtml")));
+  }, []);
+
   return (
     <AuthLayout
       heroBadge="Holy Mail!"
@@ -21,13 +27,23 @@ const VerifyEmailPage = () => {
           </p>
         </div>
 
-        <div className="mb-8">
-          <ResendVerificationForm />
+        {hasPreview && (
+          <Link
+            to="/email-preview"
+            className="block mb-10 mx-auto text-center py-4 rounded-2xl bg-slate-900 text-white font-bold text-sm hover:bg-slate-800 transition-all"
+          >
+            View Email
+          </Link>
+        )}
+
+        <div className="flexmb-8">
+          <ResendVerificationForm onPreviewReady={() => setHasPreview(true)} />
         </div>
+
 
         <Link
           to="/"
-          className="block w-full text-center py-4 text-slate-400 font-bold text-sm hover:text-slate-600 transition-all underline"
+          className="block w-full mt-10 text-center py-4 text-slate-400 font-bold text-sm hover:text-slate-600 transition-all underline"
         >
           Back to Login
         </Link>

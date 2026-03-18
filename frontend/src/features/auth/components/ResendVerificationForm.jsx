@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { authService } from "../../../api/services";
 import { Toast } from "../../../components/Toast";
 
-const ResendVerificationForm = ({ initialEmail = "" }) => {
+const ResendVerificationForm = ({ initialEmail = "", onPreviewReady }) => {
   const navigate = useNavigate();
   const [email, setEmail] = useState(() => {
     // Try to get email from sessionStorage first, then use initialEmail prop
@@ -33,6 +33,24 @@ const ResendVerificationForm = ({ initialEmail = "" }) => {
 
       if (result.success) {
         sessionStorage.setItem("signupEmail", email);
+        const preview = result?.data?.emailPreview;
+        if (preview?.html) {
+          sessionStorage.setItem("emailPreviewHtml", preview.html);
+          sessionStorage.setItem("emailPreviewType", "verify");
+          if (typeof onPreviewReady === "function") {
+            onPreviewReady();
+          }
+        }
+        if (preview?.verificationUrl) {
+          sessionStorage.setItem(
+            "emailPreviewActionUrl",
+            preview.verificationUrl,
+          );
+          sessionStorage.setItem(
+            "emailPreviewActionLabel",
+            "Open Verification Link",
+          );
+        }
         navigate("/verify-email", { replace: true });
       } else {
         setToast({

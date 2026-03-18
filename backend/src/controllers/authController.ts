@@ -5,7 +5,7 @@ import { Request, Response } from "express";
 import { prisma } from "../config/db";
 import { generateToken } from "../utils/tokenManager";
 import {
-  requestEmailVerification,
+  createUserAccountWithVerification,
   verifyEmail,
   requestPasswordReset,
   resetPassword,
@@ -23,11 +23,13 @@ export const signup = async (req: Request, res: Response) => {
   const requestId = `signup_${Date.now().toString(36)}_${Math.random()
     .toString(36)
     .slice(2, 6)}`;
+    
   const startedAt = Date.now();
   console.log(
     `[POST /api/auth/signup][${requestId}] Starting - Email:`,
     req.body?.email,
   );
+
   try {
     const {
       firstName,
@@ -65,66 +67,36 @@ export const signup = async (req: Request, res: Response) => {
     // Hash password
     const hashedPassword = await hashPassword(password);
 
-    // Create account + user profile
-    const newAccount = await prisma.account.create({
-      data: {
-        firstName,
-        lastName,
-        email,
-        phone,
-        password: hashedPassword,
-        role: "User",
-        isEmailVerified: false, // Start unverified
-
-        user: {
-          create: {
-            gender,
-            dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
-            originCountry,
-            originState,
-            originLga,
-            residenceCountry,
-            residenceState,
-            residenceCity,
-            residenceAddress,
-            occupation,
-            interests,
-            churchId,
-            matchPreference,
-          },
-        },
-      },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        role: true,
-        isEmailVerified: true,
-        status: true,
-        createdAt: true,
-      },
+    const {
+      account: newAccount,
+      emailSent,
+      emailPreview,
+      emailErrorMessage,
+    } = await createUserAccountWithVerification({
+      firstName,
+      lastName,
+      email,
+      phone,
+      hashedPassword,
+      gender,
+      dateOfBirth,
+      originCountry,
+      originState,
+      originLga,
+      residenceCountry,
+      residenceState,
+      residenceCity,
+      residenceAddress,
+      occupation,
+      interests,
+      churchId,
+      matchPreference,
     });
 
-    console.log(
-      `[POST /api/auth/signup][${requestId}] Account created in ${Date.now() - startedAt}ms`,
-    );
-
-    // Send verification email (non-blocking for signup success)
-    let emailSent = true;
-    const emailStart = Date.now();
-    console.log(
-      `[POST /api/auth/signup][${requestId}] Sending verification email`,
-    );
-    try {
-      await requestEmailVerification(newAccount);
-      console.log(
-        `[POST /api/auth/signup][${requestId}] Verification email sent in ${Date.now() - emailStart}ms`,
-      );
-    } catch (emailError: any) {
-      emailSent = false;
+    if (!emailSent) {
       console.error(
-        `[POST /api/auth/signup][${requestId}] Verification email failed after ${Date.now() - emailStart}ms:`,
-        emailError?.message || emailError,
+        `[POST /api/auth/signup][${requestId}] Verification email failed:`,
+        emailErrorMessage || "Unknown error",
       );
     }
 
@@ -143,6 +115,7 @@ export const signup = async (req: Request, res: Response) => {
         // token,
         user: newAccount,
         emailSent,
+        ...(emailPreview ? { emailPreview } : {}),
       }),
     );
   } catch (error: any) {
@@ -266,12 +239,14 @@ export const requestVerification = async (req: Request, res: Response) => {
       return res.status(400).json(errorResponse("Email is required"));
     }
 
-    await resendVerificationEmail(email);
+    const result = await resendVerificationEmail(email);
 
     res.json(
       successResponse(
-        "Verification email sent. Please check your inbox.",
-        null,
+        result.message || "Verification email sent. Please check your inbox.",
+        {
+          ...(result.emailPreview ? { emailPreview: result.emailPreview } : {}),
+        },
       ),
     );
   } catch (error: any) {
@@ -334,7 +309,11 @@ export const forgotPassword = async (req: Request, res: Response) => {
     const result = await requestPasswordReset(email);
     console.log("[POST /api/auth/forgot-password] Success");
 
-    res.json(successResponse(result.message, null));
+    res.json(
+      successResponse(result.message, {
+        ...(result.emailPreview ? { emailPreview: result.emailPreview } : {}),
+      }),
+    );
   } catch (error: any) {
     console.error("[POST /api/auth/forgot-password] Failed:", error.message);
     res

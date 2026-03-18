@@ -23,8 +23,12 @@ const toBool = (value: string | undefined, fallback: boolean) => {
 
 const smtpPort = toInt(process.env.SMTP_PORT, 465);
 
+const appEnv = process.env.APP_ENV || process.env.NODE_ENV || "development";
+
 const env = {
   nodeEnv: process.env.NODE_ENV || "development",
+  appEnv,
+  exposeEmailHtml: toBool(process.env.EXPOSE_EMAIL_HTML, appEnv === "staging"),
   clientUrl: process.env.CLIENT_URL || "http://localhost:5173",
   port: toInt(process.env.PORT, 5000),
   jwtSecret: requiredEnv("JWT_SECRET"),
@@ -46,6 +50,13 @@ const env = {
       process.env.FROM_EMAIL,
     pass: process.env.SMTP_PASS,
     secure: toBool(process.env.SMTP_SECURE, smtpPort === 465),
+  },
+  mailtrap: {
+    apiKey: process.env.MAILTRAP_API_KEY,
+    inboxId: process.env.MAILTRAP_INBOX_ID,
+    fromEmail: process.env.MAILTRAP_FROM_EMAIL,
+    accountId: process.env.MAILTRAP_ACCOUNT_ID,
+    useSandbox: toBool(process.env.MAILTRAP_USE_SANDBOX, true),
   },
   cloudinary: {
     cloudName: process.env.CLOUDINARY_CLOUD_NAME || "",

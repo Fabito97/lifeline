@@ -134,6 +134,18 @@ const SignupForm = () => {
       console.log("Signup Successful:", data);
       // Store email in sessionStorage for resend verification
       sessionStorage.setItem("signupEmail", formData.email);
+      if (data?.emailPreview?.html) {
+        sessionStorage.setItem("emailPreviewHtml", data.emailPreview.html);
+        sessionStorage.setItem("emailPreviewType", "verify");
+      }
+      
+      if (data?.emailPreview?.verificationUrl) {
+        sessionStorage.setItem(
+          "emailPreviewActionUrl",
+          data.emailPreview.verificationUrl,
+        );
+        sessionStorage.setItem("emailPreviewActionLabel", "Open Verification Link");
+      }
       
       // Navigate based on user role
       const user = data.user;

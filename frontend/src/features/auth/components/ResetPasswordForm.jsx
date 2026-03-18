@@ -1,27 +1,58 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Input from '../../../components/Input';
+import { authService } from '../../../api/services';
 
 const ResetPasswordForm = () => {
     const [formData, setFormData] = useState({
         password: '',
         confirmPassword: ''
     });
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [error, setError] = useState('');
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const token = searchParams.get('token');
 
     const handleChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        if (formData.password !== formData.confirmPassword) {
-            alert("Passwords don't match!");
+        setError('');
+
+        if (!token) {
+            setError('Missing or invalid reset token.');
             return;
         }
-        console.log('Password reset successful');
-        navigate('/password-confirmed');
+        if (formData.password !== formData.confirmPassword) {
+            setError("Passwords don't match!");
+            return;
+        }
+
+        setIsSubmitting(true);
+        try {
+            const response = await authService.resetPassword(
+                token,
+                formData.password,
+                formData.confirmPassword
+            );
+            if (response?.success) {
+                navigate('/password-confirmed');
+            } else {
+                setError(response?.message || 'Failed to reset password.');
+            }
+        } catch (err) {
+            setError(
+                err?.response?.data?.message ||
+                err?.message ||
+                'Failed to reset password.'
+            );
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (
@@ -51,11 +82,18 @@ const ResetPasswordForm = () => {
                     required
                 />
 
+                {error && (
+                    <div className="text-sm text-rose-600 font-semibold">
+                        {error}
+                    </div>
+                )}
+
                 <button
                     type="submit"
+                    disabled={isSubmitting}
                     className="w-full py-4 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-700 text-white font-bold shadow-xl shadow-blue-200/50 hover:shadow-2xl hover:shadow-blue-300/60 transform hover:-translate-y-0.5 transition-all active:scale-[0.98]"
                 >
-                    Reset Password
+                    {isSubmitting ? 'Resetting...' : 'Reset Password'}
                 </button>
             </form>
         </div>
